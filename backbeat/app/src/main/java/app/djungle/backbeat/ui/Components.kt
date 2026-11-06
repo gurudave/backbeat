@@ -310,8 +310,9 @@ fun ToastPill(text: String, visible: Boolean, modifier: Modifier = Modifier) {
 }
 
 /**
- * A key that acts once when pressed and then, held down, again and again and faster, like
- * the tuning buttons on an old radio.
+ * A key that acts once when tapped and, held down, again and again and faster, like the
+ * tuning buttons on an old radio. It waits for a tap or a hold rather than acting the moment
+ * a finger lands, so a scroll that happens to start on it changes nothing.
  */
 @Composable
 fun RepeatKey(
@@ -336,23 +337,28 @@ fun RepeatKey(
                 }
             }
             .pointerInput(Unit) {
+                // Whether this press has already stepped by being held, so its release adds no more.
+                var repeated = false
                 detectTapGestures(
                     onPress = {
                         held = true
-                        step()
+                        repeated = false
                         val repeating = scope.launch {
                             delay(420)
                             var wait = 110L
                             while (true) {
+                                repeated = true
                                 step()
                                 delay(wait)
                                 wait = (wait * 0.88).toLong().coerceAtLeast(30L)
                             }
                         }
+                        // False if the press turned into a scroll: then nothing happens.
                         tryAwaitRelease()
                         repeating.cancel()
                         held = false
                     },
+                    onTap = { if (!repeated) step() },
                 )
             },
         held = held,

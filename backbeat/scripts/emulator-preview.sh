@@ -22,8 +22,9 @@ find_text() {
 import re, sys, xml.etree.ElementTree as ET
 pattern = re.compile(sys.argv[1], re.I)
 for node in ET.parse(sys.argv[2]).iter('node'):
-    label = f"{node.get('text', '')} {node.get('content-desc', '')}".strip()
-    if label and pattern.search(label):
+    # Text and description are tried apart: a button can carry its label in both.
+    labels = [node.get('text', '').strip(), node.get('content-desc', '').strip()]
+    if any(label and pattern.search(label) for label in labels):
         x1, y1, x2, y2 = map(int, re.findall(r'-?\d+', node.get('bounds', '')))
         print((x1 + x2) // 2, (y1 + y2) // 2)
         sys.exit(0)
