@@ -161,6 +161,8 @@ fun TempoDial(bpm: Int, onChange: (Int) -> Unit, modifier: Modifier = Modifier) 
             val first = floor(shown - middle / px).toInt() - 1
             val last = ceil(shown + middle / px).toInt() + 1
             val tickWidth = 2.dp.toPx()
+            // The numbers run along the top, clear of the needle, which only crosses the ticks.
+            val scaleTop = LABEL_ROOM.toPx()
             for (value in first..last) {
                 if (value < MIN_BPM || value > MAX_BPM) continue
                 val x = middle + (value - shown) * px
@@ -169,21 +171,23 @@ fun TempoDial(bpm: Int, onChange: (Int) -> Unit, modifier: Modifier = Modifier) 
                     value % 5 == 0 -> 0.28f
                     else -> 0.15f
                 }
-                val h = size.height * share
-                drawRect(vibe.ink.copy(alpha = 0.7f), Offset(x - tickWidth / 2f, size.height - h - 4.dp.toPx()), Size(tickWidth, h))
+                val h = (size.height - scaleTop) * share * 1.7f
+                drawRect(vibe.ink.copy(alpha = 0.7f), Offset(x - tickWidth / 2f, size.height - h - 3.dp.toPx()), Size(tickWidth, h))
                 if (value % 10 == 0) {
-                    val text = measurer.measure(value.toString(), labelStyle)
-                    drawText(text, topLeft = Offset(x - text.size.width / 2f, 2.dp.toPx()))
+                    // The number nearest the needle is lit.
+                    val near = kotlin.math.abs(value - shown) < 5f
+                    val text = measurer.measure(value.toString(), if (near) labelStyle.copy(color = vibe.accent) else labelStyle)
+                    drawText(text, topLeft = Offset(x - text.size.width / 2f, 1.dp.toPx()))
                 }
             }
-            // The needle.
+            // The needle: a pointer at the top of the scale and a line down through it.
             val needle = Path().apply {
-                moveTo(middle - 7.dp.toPx(), 0f)
-                lineTo(middle + 7.dp.toPx(), 0f)
-                lineTo(middle, 9.dp.toPx())
+                moveTo(middle - 6.dp.toPx(), scaleTop)
+                lineTo(middle + 6.dp.toPx(), scaleTop)
+                lineTo(middle, scaleTop + 8.dp.toPx())
                 close()
             }
-            drawRect(vibe.accent, Offset(middle - 1.5.dp.toPx(), 0f), Size(3.dp.toPx(), size.height))
+            drawRect(vibe.accent, Offset(middle - 1.5.dp.toPx(), scaleTop), Size(3.dp.toPx(), size.height - scaleTop))
             drawPath(needle, vibe.accent)
             // The scale fades out at each end, as if curving away behind the glass.
             val fade = size.width * 0.18f
@@ -204,6 +208,9 @@ fun TempoDial(bpm: Int, onChange: (Int) -> Unit, modifier: Modifier = Modifier) 
 
 /** One BPM's width on the dial. */
 private val TICK_SPACING = 9.dp
+
+/** The strip along the top of the dial that holds its numbers. */
+private val LABEL_ROOM = 21.dp
 
 /**
  * TAP: tap it along with the music and the tempo follows. It reacts the moment a finger

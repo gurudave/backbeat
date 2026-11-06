@@ -9,7 +9,6 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.core.content.res.ResourcesCompat
-import androidx.lifecycle.lifecycleScope
 import app.djungle.backbeat.engine.Accent
 import app.djungle.backbeat.engine.Bounce
 import app.djungle.backbeat.engine.Groove
@@ -18,12 +17,10 @@ import app.djungle.backbeat.engine.Meter
 import app.djungle.backbeat.engine.Practice
 import app.djungle.backbeat.engine.Subdivision
 import app.djungle.backbeat.engine.Synth
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.DataOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -38,14 +35,21 @@ class DemoActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        lifecycleScope.launch {
-            withContext(Dispatchers.Default) { renderGallery(this@DemoActivity) }
+        // Rendered once per process, even if the emulator recreates the activity meanwhile.
+        if (!started.compareAndSet(false, true)) {
             finish()
+            return
         }
+        val app = applicationContext
+        Thread({
+            runCatching { renderGallery(app) }.onFailure { Log.e(TAG, "gallery failed", it) }
+            runOnUiThread { finish() }
+        }, "backbeat-gallery").start()
     }
 
     private companion object {
         const val TAG = "BackbeatDemo"
+        val started = AtomicBoolean(false)
         const val RATE = 48_000
         const val INK = 0xFFE6EBFF.toInt()
         const val TUBE = 0xFF05060F.toInt()

@@ -38,6 +38,20 @@ tap_text() {
   adb shell input tap $xy
 }
 
+# Scrolls the tab under the screen up by about half its height.
+scroll_panel() {
+  adb shell input swipe 540 2000 540 1550 500
+  sleep 1
+}
+
+# Slides the chip row holding the element that matches $1 to the left, to reach chips off screen.
+slide_row() {
+  local xy
+  xy=$(find_text "$1") || { echo "nothing on screen matches '$1'"; return 1; }
+  adb shell input swipe 950 "${xy#* }" 150 "${xy#* }" 500
+  sleep 1
+}
+
 # Taps a place found earlier: while the metronome plays, the screen never sits still long
 # enough for uiautomator, so anything pressed then is looked up beforehand.
 tap_at() {
@@ -78,6 +92,7 @@ sleep 2
 
 echo "== Practice aids"
 tap_text 'tempo ramp' && shot 05-ramp-on 2
+scroll_panel
 tap_text 'silent bars' && shot 06-silent-bars-on 2
 
 echo "== Tapes"
@@ -85,21 +100,30 @@ tap_text '^tapes$' && tap_text 'rec this tape' && shot 07-tape-recorded 2
 
 echo "== A compound meter with swing"
 tap_text '^beat$' && sleep 1
-tap_text '^6/8$' && tap_text '^swing$' && shot 08-six-eight-swing 2
-adb shell input swipe 540 1900 540 1300 400
-shot 09-beat-tab-scrolled 2
+slide_row '^5/4$' && tap_text '^6/8$'
+slide_row '^16ths$' && tap_text '^swing$'
+shot 08-six-eight-swing 2
+START=$(find_text '^start$') || START=""
+tap_at "$START" start
+shot 09-six-eight-playing 3
+tap_at "$START" stop
+sleep 1
+scroll_panel
+shot 10-beat-tab-scrolled 2
 
 echo "== Other channels"
-tap_text '^set up$' && shot 10-set-up 2
+tap_text '^set up$' && shot 11-set-up 2
 for vibe in 'arcade' 'roller rink' 'sunday drive' 'record shop'; do
   if tap_text "vibe $vibe"; then
-    shot "11-vibe-${vibe// /-}" 3
+    shot "12-vibe-${vibe// /-}" 3
   fi
 done
 tap_text 'vibe high score' > /dev/null
 
 echo "== Keep ticking in the background"
-tap_text 'keep ticking' && sleep 1
+scroll_panel
+scroll_panel
+tap_text 'keep ticking' && shot 13-keep-ticking-on 2
 START=$(find_text '^start$') || START=""
 tap_at "$START" start
 sleep 2
@@ -107,8 +131,16 @@ adb shell input keyevent KEYCODE_HOME
 sleep 4
 adb shell dumpsys activity services "$PKG" | grep -E 'ServiceRecord|isForeground|foregroundServiceType' | tee "$OUT/service.txt"
 adb shell cmd statusbar expand-notifications
-shot 12-notification 3
-tap_text '^stop$' && sleep 2
+shot 14-notification 3
+if ! tap_text '^stop$'; then
+  # A quiet notification starts folded; pull it open to reach its STOP button.
+  if xy=$(find_text '^Backbeat'); then
+    adb shell input swipe "${xy% *}" "${xy#* }" "${xy% *}" $(( ${xy#* } + 500 )) 400
+    shot 15-notification-open 2
+    tap_text '^stop$'
+  fi
+fi
+sleep 2
 adb shell dumpsys activity services "$PKG" | grep -c ServiceRecord | sed 's/^/services still running after STOP: /' | tee -a "$OUT/service.txt"
 adb shell cmd statusbar collapse
 
