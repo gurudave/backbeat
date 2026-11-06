@@ -28,11 +28,11 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Renders pictures and sounds of the engine for CI to look over (mode=gallery):
- *   kits.png     every sound of every kit, as an oscilloscope trace
- *   bars.png     a few bars of several grooves, with a line where each click was scheduled
- *   timing.txt   for every click in those bars, how long after its line the sound starts
- *   sounds/*.wav two bars of each kit, to listen to
+ * Renders pictures and sounds of the engine for CI to look over:
+ *   kits.png        every sound of every kit, as an oscilloscope trace
+ *   bars.png        a few bars of several grooves, with a line where each click was scheduled
+ *   timing.txt      for every click in those bars, how long after its line the sound starts
+ *   sounds/KIT.wav  two bars of each kit, to listen to
  */
 class DemoActivity : ComponentActivity() {
 
