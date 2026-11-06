@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The high score channel: a black tube with the four ghosts' colours as cabinet stripes. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#FF05060F" android:pathData="M0,0h108v108h-108z" />
+    <path android:fillColor="#FFFF4D4D" android:pathData="M0,81h108v2.2h-108z" />
+    <path android:fillColor="#FFFF8AD8" android:pathData="M0,83.8h108v2.2h-108z" />
+    <path android:fillColor="#FF3FE0FF" android:pathData="M0,86.6h108v2.2h-108z" />
+    <path android:fillColor="#FFFFB347" android:pathData="M0,89.4h108v2.2h-108z" />
+</vector>

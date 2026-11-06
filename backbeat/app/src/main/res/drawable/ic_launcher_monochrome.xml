@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The same metronome in one colour, for themed icons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="M50,26H58V30H50ZM48,30H60V36H48ZM46,36H62V42H46ZM44,42H64V48H44ZM42,48H66V54H42ZM40,54H68V60H40ZM38,60H70V66H38ZM36,66H72V72H36ZM32,72H76V78H32ZM51,34H57V66H51Z" />
+    <group android:pivotX="54" android:pivotY="64" android:rotation="22">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M53,24H55V64H53Z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M49,34H59V41H49Z" />
+    </group>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M80,30Q80,35 85,35Q80,35 80,40Q80,35 75,35Q80,35 80,30Z" />
+</vector>

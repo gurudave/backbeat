@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# Installs the preview build on a running emulator, walks through the app, and saves
+# screenshots (plus the engine's contact sheets, timing report and sample sounds) to look over.
+# Usage: emulator-preview.sh <preview.apk> <output dir>
+set -uo pipefail
+
+APK="$1"
+OUT="$2"
+PKG=app.djungle.backbeat
+mkdir -p "$OUT"
+
+shot() {
+  sleep "${2:-2}"
+  adb exec-out screencap -p > "$OUT/$1.png"
+}
+
+# Prints the centre of the first on-screen element whose text or description matches $1.
+find_text() {
+  adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1 || return 1
+  adb pull /sdcard/ui.xml "$OUT/ui.xml" > /dev/null 2>&1 || return 1
+  python3 - "$1" "$OUT/ui.xml" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+pattern = re.compile(sys.argv[1], re.I)
+for node in ET.parse(sys.argv[2]).iter('node'):
+    label = f"{node.get('text', '')} {node.get('content-desc', '')}".strip()
+    if label and pattern.search(label):
+        x1, y1, x2, y2 = map(int, re.findall(r'-?\d+', node.get('bounds', '')))
+        print((x1 + x2) // 2, (y1 + y2) // 2)
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
+tap_text() {
+  local xy
+  xy=$(find_text "$1") || { echo "nothing on screen matches '$1'"; return 1; }
+  # shellcheck disable=SC2086
+  adb shell input tap $xy
+}
+
+# Taps a place found earlier: while the metronome plays, the screen never sits still long
+# enough for uiautomator, so anything pressed then is looked up beforehand.
+tap_at() {
+  if [ -n "$1" ]; then
+    # shellcheck disable=SC2086
+    adb shell input tap $1
+  else
+    echo "no position for $2"
+  fi
+}
+
+adb install -r "$APK"
+# Granted up front, so no permission dialog covers a screenshot.
+adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS || true
+adb logcat -c
+
+echo "== Rendering the contact sheets, timing report and sounds"
+adb shell am start -W -n "$PKG/.DemoActivity"
+sleep 20
+adb pull "/sdcard/Android/data/$PKG/files/preview" "$OUT/gallery" || echo "could not pull the gallery"
+cat "$OUT/gallery/timing.txt" 2>/dev/null || true
+
+echo "== First launch"
+adb shell am start -W -n "$PKG/.MainActivity"
+shot 01-home 5
+
+START=$(find_text '^start$') || START=""
+PRACTICE=$(find_text '^practice$') || PRACTICE=""
+
+echo "== Playing"
+tap_at "$START" start
+shot 02-playing 2
+shot 03-playing-a-moment-later 1
+tap_at "$PRACTICE" practice
+shot 04-practice-tab-while-playing 2
+tap_at "$START" stop
+sleep 2
+
+echo "== Practice aids"
+tap_text 'tempo ramp' && shot 05-ramp-on 2
+tap_text 'silent bars' && shot 06-silent-bars-on 2
+
+echo "== Tapes"
+tap_text '^tapes$' && tap_text 'rec this tape' && shot 07-tape-recorded 2
+
+echo "== A compound meter with swing"
+tap_text '^beat$' && sleep 1
+tap_text '^6/8$' && tap_text '^swing$' && shot 08-six-eight-swing 2
+adb shell input swipe 540 1900 540 1300 400
+shot 09-beat-tab-scrolled 2
+
+echo "== Other channels"
+tap_text '^set up$' && shot 10-set-up 2
+for vibe in 'arcade' 'roller rink' 'sunday drive' 'record shop'; do
+  if tap_text "vibe $vibe"; then
+    shot "11-vibe-${vibe// /-}" 3
+  fi
+done
+tap_text 'vibe high score' > /dev/null
+
+echo "== Keep ticking in the background"
+tap_text 'keep ticking' && sleep 1
+START=$(find_text '^start$') || START=""
+tap_at "$START" start
+sleep 2
+adb shell input keyevent KEYCODE_HOME
+sleep 4
+adb shell dumpsys activity services "$PKG" | grep -E 'ServiceRecord|isForeground|foregroundServiceType' | tee "$OUT/service.txt"
+adb shell cmd statusbar expand-notifications
+shot 12-notification 3
+tap_text '^stop$' && sleep 2
+adb shell dumpsys activity services "$PKG" | grep -c ServiceRecord | sed 's/^/services still running after STOP: /' | tee -a "$OUT/service.txt"
+adb shell cmd statusbar collapse
+
+adb logcat -d > "$OUT/logcat.txt"
+echo "== Crashes, if any"
+grep -A 25 'FATAL EXCEPTION' "$OUT/logcat.txt" | head -80 || true
+grep -E 'BackbeatDemo|Metronome' "$OUT/logcat.txt" | head -60 || true
+exit 0

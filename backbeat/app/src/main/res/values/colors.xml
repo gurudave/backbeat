@@ -1,0 +1,4 @@
+<resources>
+    <!-- The high score channel's backdrop, shown for a moment while the app starts. -->
+    <color name="backbeat_backdrop">#FF05060F</color>
+</resources>
