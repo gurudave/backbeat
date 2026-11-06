@@ -112,6 +112,18 @@ class SequencerTest {
     }
 
     @Test
+    fun aShorterBarMidBeatFinishesTheBeatThenStartsAfresh() {
+        val sequencer = Sequencer(rate, Groove(bpm = 60, subdivision = Subdivision.EIGHTHS))
+        // Into beat 4 of a 4/4 bar, with its "and" still to come.
+        assertEquals(3, run(sequencer, 3 * 48_000L + 10_000).last().second.beat)
+        sequencer.groove = sequencer.groove.withMeter(Meter.THREE_FOUR)
+        val next = run(sequencer, 4 * 48_000L, from = 3 * 48_000L + 10_000).map { it.second }
+        assertEquals(1, next[0].step)
+        assertTrue(next[1].isDownbeat)
+        assertEquals(listOf(0, 0, 1, 1, 2, 2), next.drop(1).take(6).map { it.beat })
+    }
+
+    @Test
     fun aNewSubdivisionPicksUpWithinTheBeat() {
         val sequencer = Sequencer(rate, Groove(bpm = 60, subdivision = Subdivision.SIXTEENTHS))
         assertEquals(listOf(0L, 12_000L), run(sequencer, 13_000).map { it.first })
