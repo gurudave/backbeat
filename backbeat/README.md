@@ -95,7 +95,7 @@ of the shelf, beside the name of the page on show. It slides in from the left li
 set-up menu, with a blinking cursor at the current page and, under each page, what is set
 there now: the meter and sound, whether the Ear is judging, any practice aids that are on
 (lit, so a ramp or silent bars is not left on by mistake), the tape loaded and the channel.
-BACK, the x or a tap beside it puts it away.
+BACK, the x or a tap beside it puts it away. The version is at its foot.
 
 Scroll a page up and the television first **folds into a strip** (tempo, time signature,
 beat lights and ball, all still live), handing its room to the settings. Scroll back to the

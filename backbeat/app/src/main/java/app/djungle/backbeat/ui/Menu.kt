@@ -14,7 +14,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
@@ -45,6 +48,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -151,7 +155,11 @@ fun PageMenu(
 private fun MenuSheet(page: Page, note: (Page) -> PageNote, onPage: (Page) -> Unit, onClose: () -> Unit) {
     val vibe = LocalVibe.current
     val shadow = blockShadow()
-    Column(
+    val context = LocalContext.current
+    val version = remember {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: ""
+    }
+    BoxWithConstraints(
         Modifier
             .fillMaxHeight()
             .fillMaxWidth(0.86f)
@@ -164,20 +172,35 @@ private fun MenuSheet(page: Page, note: (Page) -> PageNote, onPage: (Page) -> Un
             .border(2.dp, shadow)
             // Taps on the sheet itself stay on it, rather than closing it from behind.
             .pointerInput(Unit) { detectTapGestures { } }
-            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
-            .verticalScroll(rememberScrollState()),
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)),
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        // The pages at the top and the maker's plate at the foot, scrolling as one if the window is low.
+        Column(
+            Modifier.verticalScroll(rememberScrollState()).heightIn(min = maxHeight),
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            StripedText("MENU", TextStyle(fontFamily = Arcade, fontSize = 18.sp), vibe.stripes, shadow, Modifier.weight(1f))
-            RetroChip("x", selected = false, onClick = onClose, modifier = Modifier.semantics { contentDescription = "close the menu" })
-        }
-        ArcadeStripes(vibe.stripes, Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 10.dp), band = 2.dp, gap = 1.dp)
-        val blink = rememberBlink(530L)
-        Page.entries.forEach { each ->
-            MenuItem(each, note(each), current = each == page, cursor = blink, onClick = { onPage(each) })
+            Column {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    StripedText("MENU", TextStyle(fontFamily = Arcade, fontSize = 18.sp), vibe.stripes, shadow, Modifier.weight(1f))
+                    RetroChip("x", selected = false, onClick = onClose, modifier = Modifier.semantics { contentDescription = "close the menu" })
+                }
+                ArcadeStripes(vibe.stripes, Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 10.dp), band = 2.dp, gap = 1.dp)
+                val blink = rememberBlink(530L)
+                Page.entries.forEach { each ->
+                    MenuItem(each, note(each), current = each == page, cursor = blink, onClick = { onPage(each) })
+                }
+            }
+            Text(
+                "BACKBEAT $version\nno adverts, no accounts, no internet.",
+                color = vibe.ink.copy(alpha = 0.5f),
+                fontFamily = Vcr,
+                fontSize = 18.sp,
+                lineHeight = 20.sp,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 16.dp),
+            )
         }
     }
 }

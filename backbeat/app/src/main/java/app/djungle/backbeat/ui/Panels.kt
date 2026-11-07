@@ -33,11 +33,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -287,10 +285,6 @@ private fun Reels(spinning: Boolean) {
 /** The look of the app, and how it behaves. */
 @Composable
 fun SetUpPanel(vibe: Vibe, onVibe: (Vibe) -> Unit, options: Options, onOptions: (Options) -> Unit) {
-    val context = LocalContext.current
-    val version = remember {
-        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: ""
-    }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         ChannelPicker(vibe, onVibe, Modifier.padding(horizontal = 16.dp))
         Box(Modifier.height(4.dp))
@@ -303,14 +297,6 @@ fun SetUpPanel(vibe: Vibe, onVibe: (Vibe) -> Unit, options: Options, onOptions: 
         ToggleRow("keep ticking", "carries on with the screen off or in another app", options.keepTicking) {
             onOptions(options.copy(keepTicking = it))
         }
-        Text(
-            "BACKBEAT $version\nno adverts, no accounts, no internet.",
-            color = vibe.ink.copy(alpha = 0.5f),
-            fontFamily = Vcr,
-            fontSize = 18.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-        )
     }
 }
 
