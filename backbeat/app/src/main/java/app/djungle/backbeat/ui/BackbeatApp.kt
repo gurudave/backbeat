@@ -99,8 +99,10 @@ fun BackbeatApp() {
         toastVisible = false
     }
 
-    // Every change reaches the engine at once, and is remembered for next time.
-    SideEffect { if (ear.mode != EarMode.CALIBRATE) Metronome.update(groove, practice) }
+    // Every change reaches the engine at once, and is remembered for next time. Not while the
+    // Ear calibrates, which plays its own clicks: asked directly, since what is collected from
+    // it can be a frame behind.
+    SideEffect { if (Ear.mode != EarMode.CALIBRATE) Metronome.update(groove, practice) }
     fun changeGroove(next: Groove) {
         groove = next
         AppSettings.setGroove(context, next)
