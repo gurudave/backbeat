@@ -27,7 +27,7 @@ data class EngineState(
 
 /** What the listener is hearing at this moment, worked out for one frame of the display. */
 class Now(
-    /** The click heard most recently (a beat or a step between beats). */
+    /** The click heard most recently (a beat or a step between beats, not the cross-rhythm). */
     val tick: Tick,
     /** The beat heard most recently. */
     val beat: Tick,
@@ -36,8 +36,24 @@ class Now(
     val sinceBeatMillis: Float,
     /** Time played since START, for the tape counter. */
     val elapsedMillis: Long,
-    /** Counts every click heard; it changes exactly when a new one is heard. */
+    /** Counts every click heard; it changes exactly when a new beat or step is heard. */
     val serial: Long,
+    /** The cross-rhythm's click heard most recently, if one is playing. */
+    val cross: Tick? = null,
+    val sinceCrossMillis: Float = 0f,
+)
+
+/** A click as placed for the speaker, for the Ear: when it will be heard, and how loud. */
+class Placed(
+    /** Counts every click placed since START. */
+    val serial: Long,
+    /** The frame it was placed on. */
+    val frame: Long,
+    /** When it comes out of the speaker, by [System.nanoTime], as the speaker's clock read when it was placed. */
+    val nanos: Long,
+    val tick: Tick,
+    /** Its peak level, with the volume: 0 for a click that makes no sound. */
+    val level: Float,
 )
 
 /**
@@ -70,6 +86,7 @@ object Metronome {
     private const val LOG_SIZE = 64
     private val logFrames = LongArray(LOG_SIZE)
     private val logTicks = arrayOfNulls<Tick>(LOG_SIZE)
+    private val logLevels = FloatArray(LOG_SIZE)
     @Volatile private var logCount = 0L
 
     /** The speaker's clock: [frame] was coming out of it at [nanos]. */
@@ -183,7 +200,7 @@ object Metronome {
 
         var appliedGroove = groove
         var appliedPractice = practice
-        val sequencer = Sequencer(sampleRate, appliedGroove, appliedPractice)
+        val sequencer = Sequencer(sampleRate, appliedGroove, appliedPractice, seed = System.nanoTime())
         val mixer = Mixer()
         val buffer = FloatArray(block)
         val stamp = AudioTimestamp()
@@ -207,15 +224,16 @@ object Metronome {
                 val sounds = allKits.getValue(g.kit)
                 val limit = p.stopAfterMinutes * 60L * sampleRate
                 val start = written
+                val gain = loudness(g.volume)
                 sequencer.advance(block) { offset, tick ->
                     // Time's up: stop on the next downbeat, so the practice ends with a full bar.
                     if (limit > 0 && start + offset >= limit && tick.isDownbeat) timeUp = true
                     if (!timeUp) {
-                        log(start + offset, tick)
+                        log(start + offset, tick, sounds.peak(tick) * gain)
                         sounds.play(tick, mixer, offset)
                     }
                 }
-                mixer.render(buffer, block, loudness(g.volume))
+                mixer.render(buffer, block, gain)
                 var done = 0
                 while (done < block && running && session == mine) {
                     val n = track.write(buffer, done, block - done, AudioTrack.WRITE_BLOCKING)
@@ -245,6 +263,7 @@ object Metronome {
             // An underrun means the speaker ran dry and the clicks behind it came late.
             Log.i(TAG, "played ${written * 1000 / sampleRate} ms at $sampleRate Hz, ${runCatching { track.underrunCount }.getOrDefault(-1)} underruns")
             track.release()
+            sessionEnded?.invoke(written * 1000 / sampleRate)
         }
         if (session == mine) {
             stop()
@@ -252,11 +271,15 @@ object Metronome {
         }
     }
 
-    private fun log(frame: Long, tick: Tick) {
+    /** Told how long each run of the metronome played for, in milliseconds, as it ends. */
+    @Volatile var sessionEnded: ((Long) -> Unit)? = null
+
+    private fun log(frame: Long, tick: Tick, level: Float) {
         val n = logCount
         val i = (n % LOG_SIZE).toInt()
         logFrames[i] = frame
         logTicks[i] = tick
+        logLevels[i] = level
         // Published last, so a reader never sees a slot before it is filled.
         logCount = n + 1
     }
@@ -305,21 +328,33 @@ object Metronome {
         var serial = 0L
         var beat: Tick? = null
         var beatFrame = 0L
+        var cross: Tick? = null
+        var crossFrame = 0L
+        var downbeatSeen = false
         var n = count - 1
         while (n >= 0 && n >= count - LOG_SIZE) {
             val i = (n % LOG_SIZE).toInt()
             val frame = logFrames[i]
             val t = logTicks[i]
             if (t != null && frame <= heard) {
-                if (tick == null) {
-                    tick = t
-                    serial = n
+                if (t.isCross) {
+                    if (cross == null) {
+                        cross = t
+                        crossFrame = frame
+                    }
+                } else {
+                    if (tick == null) {
+                        tick = t
+                        serial = n
+                    }
+                    if (t.isBeat && beat == null) {
+                        beat = t
+                        beatFrame = frame
+                    }
+                    if (t.isDownbeat) downbeatSeen = true
                 }
-                if (t.step == 0) {
-                    beat = t
-                    beatFrame = frame
-                    break
-                }
+                // A cross-rhythm starts on every downbeat, so looking back to one finds its click.
+                if (beat != null && (cross != null || downbeatSeen)) break
             }
             n--
         }
@@ -333,7 +368,37 @@ object Metronome {
             sinceBeatMillis = since * 1000f / clock.sampleRate,
             elapsedMillis = heard.coerceAtLeast(0) * 1000 / clock.sampleRate,
             serial = serial,
+            cross = cross,
+            sinceCrossMillis = (heard - crossFrame) * 1000f / clock.sampleRate,
         )
+    }
+
+    /**
+     * Every click placed after [serial] that is still in the log, oldest first, with when it
+     * will be heard. Null until the speaker's clock is known. From any thread.
+     */
+    fun placedSince(serial: Long): List<Placed>? {
+        if (!running) return null
+        val clock = anchor ?: return null
+        val count = logCount
+        val out = ArrayList<Placed>()
+        var n = maxOf(serial + 1, count - LOG_SIZE + 1, 0L)
+        while (n < count) {
+            val i = (n % LOG_SIZE).toInt()
+            val t = logTicks[i]
+            if (t != null) {
+                val nanos = clock.nanos + ((logFrames[i] - clock.frame) * 1e9 / clock.sampleRate).toLong()
+                out += Placed(n, logFrames[i], nanos, t, logLevels[i])
+            }
+            n++
+        }
+        return out
+    }
+
+    /** When [frame] comes out of the speaker, by the speaker's clock as it reads now. */
+    fun heardAt(frame: Long): Long? {
+        val clock = anchor?.takeIf { running } ?: return null
+        return clock.nanos + ((frame - clock.frame) * 1e9 / clock.sampleRate).toLong()
     }
 
     /** Plays one bar's worth of a kit (accent, beat, beat) so its sound can be chosen by ear. */

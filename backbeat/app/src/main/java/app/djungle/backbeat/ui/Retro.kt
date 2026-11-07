@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -40,10 +41,16 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -255,6 +262,102 @@ fun PixelBurst(trigger: Int, colors: List<Color>, modifier: Modifier = Modifier)
             val x = ((center.x + cos(pixel.angle) * distance) / grid).roundToInt() * grid
             val y = ((center.y + sin(pixel.angle) * distance) / grid).roundToInt() * grid
             drawRect(colors[pixel.tint % colors.size], Offset(x - side / 2f, y - side / 2f), Size(side, side))
+        }
+    }
+}
+
+/** Coarse snow for a television between channels: twice as wide and tall as it is drawn, so it can jump about. */
+private val snowTile: ImageBitmap by lazy {
+    val w = 160
+    val h = 112
+    val random = Random(41)
+    val pixels = IntArray(w * h) {
+        val v = random.nextInt(0, 256)
+        android.graphics.Color.argb(255, v, v, v)
+    }
+    Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888).asImageBitmap()
+}
+
+/** Whether the television has been switched on in this run of the app: turning the phone round does not do it again. */
+private var switchedOn = false
+
+/** The green of a television's channel number. */
+private val ChannelGreen = Color(0xFF7CFF4F)
+
+/**
+ * The television's moods, for the picture inside [Tube]: it switches on the way a cathode-ray
+ * tube did, a bright line opening out into the picture; and changing channel brings a burst
+ * of snow, with the channel's number in green in the corner for a moment.
+ */
+@Composable
+fun rememberTubeEffects(): Modifier {
+    val vibe = LocalVibe.current
+    val power = remember { Animatable(if (switchedOn) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        if (!switchedOn) {
+            switchedOn = true
+            delay(150)
+            power.animateTo(1f, tween(750, easing = LinearEasing))
+        }
+    }
+    val snow = remember { Animatable(0f) }
+    val badge = remember { Animatable(0f) }
+    var first by remember { mutableStateOf(true) }
+    LaunchedEffect(vibe) {
+        if (first) {
+            first = false
+            return@LaunchedEffect
+        }
+        badge.snapTo(1f)
+        snow.snapTo(1f)
+        snow.animateTo(0f, tween(450, easing = LinearEasing))
+        delay(900)
+        badge.animateTo(0f, tween(300))
+    }
+    val measurer = rememberTextMeasurer()
+    val label = vibe.channelName
+    return Modifier.drawWithContent {
+        val p = power.value
+        when {
+            p >= 1f -> drawContent()
+            p < 0.3f -> {
+                // A dot of light that stretches into a line across the middle.
+                drawRect(Color.Black)
+                val w = size.width * (p / 0.3f)
+                val h = 3.dp.toPx()
+                drawRect(Color.White, Offset((size.width - w) / 2f, (size.height - h) / 2f), Size(w, h))
+            }
+            else -> {
+                // The line opens out into the picture, washed white at first.
+                val q = (p - 0.3f) / 0.7f
+                val open = 1f - (1f - q) * (1f - q) * (1f - q)
+                val h = size.height * open
+                val top = (size.height - h) / 2f
+                drawRect(Color.Black)
+                clipRect(0f, top, size.width, top + h) { this@drawWithContent.drawContent() }
+                drawRect(Color.White.copy(alpha = 0.85f * (1f - q)), Offset(0f, top), Size(size.width, h))
+            }
+        }
+        val s = snow.value
+        if (s > 0f) {
+            // A different patch of snow each frame, drawn in big square pixels.
+            val random = Random((s * 10_000).toInt())
+            val tile = snowTile
+            val srcW = tile.width / 2
+            val srcH = tile.height / 2
+            drawImage(
+                tile,
+                srcOffset = IntOffset(random.nextInt(srcW), random.nextInt(srcH)),
+                srcSize = IntSize(srcW, srcH),
+                dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
+                alpha = (s * 1.4f).coerceAtMost(1f) * 0.9f,
+                filterQuality = FilterQuality.None,
+            )
+        }
+        val b = badge.value
+        if (b > 0f) {
+            val text = measurer.measure(label, osdStyle(30.sp, ChannelGreen.copy(alpha = b)))
+            drawText(text, topLeft = Offset(size.width - text.size.width - 14.dp.toPx(), 8.dp.toPx()))
         }
     }
 }

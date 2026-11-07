@@ -183,6 +183,94 @@ class SequencerTest {
     }
 
     @Test
+    fun threeAgainstFourSpreadsThreeClicksAcrossTheBar() {
+        val ticks = run(Sequencer(rate, Groove(bpm = 60, cross = 3)), rate * 8L)
+        val cross = ticks.filter { it.second.isCross }
+        // A bar of 4/4 at 60 is four seconds, so a click every 4/3 of a second, from the downbeat.
+        assertEquals(listOf(0L, 64_000L, 128_000L, 192_000L, 256_000L, 320_000L), cross.map { it.first })
+        assertEquals(listOf(0, 1, 2, 0, 1, 2), cross.map { it.second.cross })
+        assertEquals(listOf(0, 0, 0, 1, 1, 1), cross.map { it.second.bar })
+        assertEquals(listOf(0, 1, 2, 0, 1, 2), cross.map { it.second.beat })
+        // The beats themselves are untouched, and on the downbeat the beat comes first.
+        assertEquals(8, ticks.count { it.second.isBeat })
+        assertTrue(ticks[0].second.isDownbeat)
+        assertEquals(0, ticks[1].second.cross)
+    }
+
+    @Test
+    fun aCrossRhythmLikeTheBeatsIsNoCrossRhythm() {
+        val ticks = run(Sequencer(rate, Groove(bpm = 120, cross = 4)), rate * 4L)
+        assertTrue(ticks.none { it.second.isCross })
+    }
+
+    @Test
+    fun aCrossRhythmStaysWithTheBarThroughARamp() {
+        val practice = Practice(ramp = true, rampStep = 7, rampEvery = 1, rampTarget = 200)
+        val ticks = run(Sequencer(rate, Groove(bpm = 90, cross = 5).withMeter(Meter.SEVEN_EIGHT), practice), rate * 30L)
+        val downbeats = ticks.filter { it.second.isDownbeat }.map { it.first }
+        val firsts = ticks.filter { it.second.cross == 0 }.map { it.first }
+        assertEquals(downbeats, firsts)
+        // Five clicks in every bar, each bar at its own tempo.
+        ticks.filter { it.second.isCross }.groupBy { it.second.bar }.values.toList().dropLast(1).forEach { bar ->
+            assertEquals(listOf(0, 1, 2, 3, 4), bar.map { it.second.cross })
+            val gaps = bar.zipWithNext { a, b -> b.first - a.first }
+            assertTrue("uneven: $gaps", gaps.max() - gaps.min() <= 1)
+        }
+    }
+
+    @Test
+    fun theBlockSizeMakesNoDifferenceToACrossRhythm() {
+        val groove = Groove(bpm = 111, cross = 3, subdivision = Subdivision.EIGHTHS).withMeter(Meter.FIVE_FOUR).copy(cross = 3)
+        val reference = run(Sequencer(rate, groove), rate * 20L, block = 64)
+        for (block in listOf(1, 240, 4096)) {
+            assertEquals("block $block", reference, run(Sequencer(rate, groove), rate * 20L, block = block))
+        }
+    }
+
+    @Test
+    fun turningOnACrossRhythmMidBarPicksUpWhereItWouldHaveBeen() {
+        val sequencer = Sequencer(rate, Groove(bpm = 60))
+        run(sequencer, 48_000L * 3 / 2)
+        sequencer.groove = sequencer.groove.copy(cross = 3)
+        val cross = run(sequencer, rate * 4L, from = 72_000).filter { it.second.isCross }
+        // 4/3 s into the bar was still to come; then the next bar starts afresh.
+        assertEquals(listOf(128_000L, 192_000L), cross.take(2).map { it.first })
+        assertEquals(listOf(2, 0), cross.take(2).map { it.second.cross })
+    }
+
+    @Test
+    fun aShorterBarMidBarRespreadsTheCrossRhythm() {
+        val sequencer = Sequencer(rate, Groove(bpm = 60, cross = 3).withMeter(Meter.SIX_FOUR).copy(cross = 3))
+        // Two beats into a bar of 6, where the cross-rhythm falls every 2 beats.
+        run(sequencer, 48_000L * 5 / 2)
+        sequencer.groove = sequencer.groove.withMeter(Meter.FOUR_FOUR).copy(cross = 3)
+        val cross = run(sequencer, rate * 6L, from = 120_000).filter { it.second.isCross }
+        // Over a bar of 4 they fall every 4/3 beats: 8/3 beats in is the next.
+        assertEquals(128_000L, cross.first().first)
+        assertEquals(192_000L, cross[1].first)
+        assertEquals(0, cross[1].second.cross)
+    }
+
+    @Test
+    fun dropoutLeavesOutSomeBeatsButNeverTheOne() {
+        val practice = Practice(dropout = 30)
+        val ticks = run(Sequencer(rate, Groove(bpm = 240, subdivision = Subdivision.EIGHTHS), practice, seed = 42), rate * 60L)
+        val beats = ticks.filter { it.second.isBeat }
+        assertTrue(beats.filter { it.second.isDownbeat }.all { it.second.audible })
+        val others = beats.filterNot { it.second.isDownbeat }
+        val share = others.count { !it.second.audible } * 100 / others.size
+        assertTrue("dropped $share%", share in 24..36)
+        // A dropped beat takes its quaver with it.
+        ticks.filter { it.second.step == 1 }.forEach { (_, and) ->
+            val beat = beats.first { it.second.bar == and.bar && it.second.beat == and.beat }.second
+            assertEquals(beat.audible, and.audible)
+        }
+        // The same seed drops the same beats; another drops others.
+        assertEquals(ticks, run(Sequencer(rate, Groove(bpm = 240, subdivision = Subdivision.EIGHTHS), practice, seed = 42), rate * 60L))
+        assertFalse(ticks == run(Sequencer(rate, Groove(bpm = 240, subdivision = Subdivision.EIGHTHS), practice, seed = 43), rate * 60L))
+    }
+
+    @Test
     fun tempoMarkingsRunSlowToFast() {
         assertEquals("grave", tempoMarking(30))
         assertEquals("andante", tempoMarking(90))

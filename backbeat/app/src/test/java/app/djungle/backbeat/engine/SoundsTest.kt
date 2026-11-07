@@ -1,5 +1,6 @@
 package app.djungle.backbeat.engine
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,7 +15,7 @@ class SoundsTest {
     fun everySoundIsCleanAndShort() {
         for (kit in Kit.entries) {
             val sounds = Synth.render(kit, rate)
-            listOf("strong" to sounds.strong, "normal" to sounds.normal, "sub" to sounds.sub).forEach { (name, x) ->
+            listOf("strong" to sounds.strong, "normal" to sounds.normal, "sub" to sounds.sub, "cross" to sounds.cross).forEach { (name, x) ->
                 val label = "${kit.label} $name"
                 assertTrue("$label is empty", x.isNotEmpty())
                 assertTrue("$label lasts ${x.size} frames", x.size < rate / 2)
@@ -91,6 +92,32 @@ class SoundsTest {
         assertTrue(peak(take.audio, 0, bar) > 0.1f)
         assertEquals(0f, peak(take.audio, bar + 4_000, 2 * bar))
         assertTrue(peak(take.audio, 2 * bar, 3 * bar) > 0.1f)
+    }
+
+    @Test
+    fun theCrossRhythmHasItsOwnSound() {
+        val groove = Groove(bpm = 60, kit = Kit.WOOD, cross = 3)
+        val sounds = Synth.render(Kit.WOOD, rate)
+        val take = Bounce.render(groove, rate, rate * 4)
+        val cross = take.ticks.filter { it.second.isCross }
+        assertEquals(listOf(0, 64_000, 128_000), cross.map { it.first })
+        // Between the beats, only the cross-rhythm's sound is heard.
+        val at = 64_000
+        val heard = take.audio.copyOfRange(at, at + sounds.cross.size)
+        val expected = FloatArray(sounds.cross.size) { sounds.cross[it] * KitSounds.CROSS_GAIN * loudness(groove.volume) }
+        assertArrayEquals(expected, heard, 0f)
+    }
+
+    @Test
+    fun aClickKnowsHowLoudItWillBe() {
+        val sounds = Synth.render(Kit.BLIP, rate)
+        fun tick(accent: Accent, step: Int = 0, audible: Boolean = true, cross: Int = -1) = Tick(0, 0, step, accent, audible, 120, cross)
+        assertEquals(peak(sounds.strong), sounds.peak(tick(Accent.STRONG)), 0f)
+        assertEquals(peak(sounds.normal) * KitSounds.GHOST_GAIN, sounds.peak(tick(Accent.SOFT)), 1e-6f)
+        assertEquals(peak(sounds.sub), sounds.peak(tick(Accent.STRONG, step = 1)), 0f)
+        assertEquals(peak(sounds.cross) * KitSounds.CROSS_GAIN, sounds.peak(tick(Accent.NORMAL, cross = 2)), 1e-6f)
+        assertEquals(0f, sounds.peak(tick(Accent.MUTE)), 0f)
+        assertEquals(0f, sounds.peak(tick(Accent.STRONG, audible = false)), 0f)
     }
 
     @Test

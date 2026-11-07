@@ -143,6 +143,7 @@ fun RetroChip(
     modifier: Modifier = Modifier,
     fontFamily: FontFamily? = null,
     fontSize: TextUnit = 20.sp,
+    padding: Dp = 14.dp,
 ) {
     val vibe = LocalVibe.current
     RetroBlock(
@@ -151,7 +152,7 @@ fun RetroChip(
         onClick = onClick,
         held = selected,
         depth = 3.dp,
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+        contentPadding = PaddingValues(horizontal = padding, vertical = 6.dp),
     ) {
         Text(
             if (fontFamily == null) text.uppercase() else text,

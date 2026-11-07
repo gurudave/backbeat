@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -42,6 +43,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.djungle.backbeat.data.AppSettings
+import app.djungle.backbeat.data.Logbook
 import app.djungle.backbeat.data.Options
 import app.djungle.backbeat.data.Tape
 import app.djungle.backbeat.engine.Groove
@@ -55,18 +58,19 @@ import app.djungle.backbeat.ui.theme.LocalVibe
 import app.djungle.backbeat.ui.theme.Vcr
 import app.djungle.backbeat.ui.theme.Vibe
 import kotlinx.coroutines.delay
+import java.time.LocalDate
 
 /** The tabs under the screen. */
-enum class Tab(val label: String) { BEAT("beat"), PRACTICE("practice"), TAPES("tapes"), SET_UP("set up") }
+enum class Tab(val label: String) { BEAT("beat"), EAR("ear"), PRACTICE("practice"), TAPES("tapes"), SET_UP("set up") }
 
 /** The row of tab names. It slides sideways if a narrow screen cannot fit them all. */
 @Composable
 fun TabChips(selected: Tab, onSelect: (Tab) -> Unit) {
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Tab.entries.forEach { RetroChip(it.label, selected = selected == it, onClick = { onSelect(it) }) }
+        Tab.entries.forEach { RetroChip(it.label, selected = selected == it, onClick = { onSelect(it) }, padding = 10.dp) }
     }
 }
 
@@ -95,6 +99,10 @@ fun BeatPanel(groove: Groove, onChange: (Groove) -> Unit, onKit: (Kit) -> Unit) 
         ChipRow(Meter.entries, groove.meter, { it.label }) { onChange(groove.withMeter(it)) }
         Title("between the beats")
         ChipRow(Subdivision.entries, groove.subdivision, { it.label }) { onChange(groove.copy(subdivision = it)) }
+        Title("cross-rhythm")
+        // Against four beats, four is no cross-rhythm at all.
+        val crosses = listOf(0) + (2..AppSettings.MAX_CROSS).filter { it != groove.beats }
+        ChipRow(crosses, groove.crossCount, { if (it == 0) "off" else "$it:${groove.beats}" }) { onChange(groove.copy(cross = it)) }
         Title("sound")
         ChipRow(Kit.entries, groove.kit, { it.label }, onKit)
         Title("volume")
@@ -106,14 +114,20 @@ fun BeatPanel(groove: Groove, onChange: (Groove) -> Unit, onKit: (Kit) -> Unit) 
             onChange = { onChange(groove.copy(volume = it)) },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
         )
-        Hint("tap a light on the screen to change its beat: accent, beat, ghost or rest. the tallest light is the loudest.")
+        Hint(
+            "tap a light on the screen to change its beat: accent, beat, ghost or rest. the tallest light is the loudest. " +
+                "a cross-rhythm spreads its clicks evenly over the bar, in a sound of its own: 3:4 is three against four.",
+        )
     }
 }
 
-/** The practice aids: a climbing tempo, silent bars and a timer. */
+/** The practice aids: a climbing tempo, silent bars, beats that go missing and a timer, under the logbook. */
 @Composable
-fun PracticePanel(practice: Practice, groove: Groove, onChange: (Practice) -> Unit) {
+fun PracticePanel(practice: Practice, groove: Groove, onChange: (Practice) -> Unit, logbook: Map<String, Int> = emptyMap()) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Title("logbook")
+        LogbookView(logbook, LocalDate.now(), Modifier.padding(horizontal = 16.dp))
+        Box(Modifier.height(4.dp))
         ToggleRow("tempo ramp", "speeds up (or slows down) a little every few bars", practice.ramp) { on ->
             // Turning it on with the target where you already are would do nothing, so aim higher.
             val target = if (on && practice.rampTarget == groove.bpm) (groove.bpm + 20).coerceAtMost(MAX_BPM) else practice.rampTarget
@@ -133,6 +147,12 @@ fun PracticePanel(practice: Practice, groove: Groove, onChange: (Practice) -> Un
             StepperRow("then hush", practice.gapRest, 1..16, { onChange(practice.copy(gapRest = it)) }, ::bars)
         }
         Box(Modifier.height(4.dp))
+        Title("dropout")
+        ChipRow(listOf(0, 10, 20, 30, 50), practice.dropout, { if (it == 0) "off" else "$it%" }) {
+            onChange(practice.copy(dropout = it))
+        }
+        Hint("beats go missing at random, for you to fill in. the one always plays.")
+        Box(Modifier.height(4.dp))
         Title("stop after")
         ChipRow(listOf(0, 5, 10, 15, 20, 30, 45, 60), practice.stopAfterMinutes, { if (it == 0) "never" else "$it min" }) {
             onChange(practice.copy(stopAfterMinutes = it))
@@ -151,6 +171,7 @@ fun TapesPanel(
     onLoad: (Tape) -> Unit,
     onRename: (Tape, String) -> Unit,
     onErase: (Tape) -> Unit,
+    onRaise: (Tape) -> Unit = {},
 ) {
     val vibe = LocalVibe.current
     val blink = rememberBlink(700L)
@@ -171,7 +192,7 @@ fun TapesPanel(
         if (tapes.isEmpty()) {
             Hint("no tapes yet. set up a tempo you like, press rec, and write the song's name on its label.")
         }
-        tapes.forEach { tape ->
+        tapes.forEachIndexed { i, tape ->
             TapeRow(
                 tape = tape,
                 loaded = tape.groove == groove,
@@ -179,7 +200,11 @@ fun TapesPanel(
                 onLoad = { onLoad(tape) },
                 onRename = { onRename(tape, it) },
                 onErase = { onErase(tape) },
+                onRaise = if (i > 0) ({ onRaise(tape) }) else null,
             )
+        }
+        if (tapes.size > 1) {
+            Hint("the tapes are a set list: on the big screen, or with a pedal, step from one to the next. ^ moves a tape up.")
         }
     }
 }
@@ -192,6 +217,7 @@ private fun TapeRow(
     onLoad: () -> Unit,
     onRename: (String) -> Unit,
     onErase: () -> Unit,
+    onRaise: (() -> Unit)?,
 ) {
     val vibe = LocalVibe.current
     var arming by remember { mutableStateOf(false) }
@@ -217,10 +243,14 @@ private fun TapeRow(
                     singleLine = true,
                     textStyle = TextStyle(fontFamily = Vcr, fontSize = 22.sp, color = vibe.ink),
                     cursorBrush = SolidColor(vibe.accent),
-                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = "tape label" },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { Pedal.typing = it.isFocused }
+                        .semantics { contentDescription = "tape label" },
                 )
+                val cross = if (tape.groove.crossCount > 0) " · ${tape.groove.crossCount}:${tape.groove.beats}" else ""
                 Text(
-                    "${tape.groove.bpm} BPM · ${tape.groove.meter.label} · ${tape.groove.subdivision.label} · ${tape.groove.kit.label}".uppercase(),
+                    "${tape.groove.bpm} BPM · ${tape.groove.meter.label}$cross · ${tape.groove.subdivision.label} · ${tape.groove.kit.label}".uppercase(),
                     color = vibe.ink.copy(alpha = 0.6f),
                     fontFamily = Vcr,
                     fontSize = 16.sp,
@@ -228,6 +258,10 @@ private fun TapeRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 ArcadeStripes(vibe.stripes, Modifier.fillMaxWidth().padding(top = 4.dp), band = 2.dp, gap = 0.dp)
+            }
+            if (onRaise != null) {
+                RetroChip("^", selected = false, onClick = onRaise, modifier = Modifier.semantics { contentDescription = "move up" })
+                Box(Modifier.width(4.dp))
             }
             RetroChip("load", selected = loaded, onClick = onLoad)
             Box(Modifier.width(4.dp))
@@ -294,4 +328,67 @@ fun SetUpPanel(vibe: Vibe, onVibe: (Vibe) -> Unit, options: Options, onOptions: 
             modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
         )
     }
+}
+
+/** "23 MIN", or "4 H 05" once it runs to hours. */
+fun duration(seconds: Long): String {
+    val minutes = seconds / 60
+    return if (minutes < 60) "$minutes MIN" else "${minutes / 60} H " + (minutes % 60).toString().padStart(2, '0')
+}
+
+/**
+ * The logbook: twelve weeks of practice as a grid of pixels, a column a week and Monday at
+ * the top, brighter for longer, beside today's time, the streak and the total.
+ */
+@Composable
+fun LogbookView(days: Map<String, Int>, today: LocalDate, modifier: Modifier = Modifier) {
+    val vibe = LocalVibe.current
+    val summary = Logbook.summarise(days, today)
+    val grid = Logbook.grid(days, today)
+    RetroBlock(modifier.fillMaxWidth(), fill = vibe.background, contentPadding = PaddingValues(10.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Canvas(
+                Modifier
+                    .size(width = (grid.size * 13).dp, height = (7 * 13).dp)
+                    .semantics { contentDescription = "practice over the last twelve weeks" },
+            ) {
+                val cell = size.width / grid.size
+                val side = cell - 3.dp.toPx()
+                grid.forEachIndexed { w, week ->
+                    week.forEachIndexed { d, seconds ->
+                        val at = Offset(w * cell, d * cell)
+                        when {
+                            seconds == null -> Unit
+                            seconds < 60 -> drawRect(vibe.ink.copy(alpha = 0.1f), at, Size(side, side))
+                            else -> {
+                                val minutes = seconds / 60
+                                val color = when {
+                                    minutes < 10 -> vibe.primary.copy(alpha = 0.35f)
+                                    minutes < 20 -> vibe.primary.copy(alpha = 0.6f)
+                                    minutes < 40 -> vibe.primary
+                                    else -> vibe.accent
+                                }
+                                drawRect(color, at, Size(side, side))
+                            }
+                        }
+                        if (w == grid.lastIndex && d == today.dayOfWeek.value - 1) {
+                            drawRect(vibe.ink, at, Size(side, side), style = Stroke(1.5.dp.toPx()))
+                        }
+                    }
+                }
+            }
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                LogLine("today", duration(summary.todaySeconds.toLong()))
+                LogLine("streak", if (summary.streak == 1) "1 DAY" else "${summary.streak} DAYS")
+                LogLine("in all", duration(summary.totalSeconds))
+            }
+        }
+    }
+}
+
+@Composable
+private fun LogLine(label: String, value: String) {
+    val vibe = LocalVibe.current
+    Text(label.uppercase(), color = vibe.ink.copy(alpha = 0.6f), fontFamily = Vcr, fontSize = 16.sp, lineHeight = 16.sp)
+    Text(value, color = vibe.accent, fontFamily = Vcr, fontSize = 22.sp, lineHeight = 22.sp, maxLines = 1)
 }
