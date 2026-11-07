@@ -47,7 +47,9 @@ class Now(
 class Placed(
     /** Counts every click placed since START. */
     val serial: Long,
-    /** When it comes out of the speaker, by [System.nanoTime]. */
+    /** The frame it was placed on. */
+    val frame: Long,
+    /** When it comes out of the speaker, by [System.nanoTime], as the speaker's clock read when it was placed. */
     val nanos: Long,
     val tick: Tick,
     /** Its peak level, with the volume: 0 for a click that makes no sound. */
@@ -386,11 +388,17 @@ object Metronome {
             val t = logTicks[i]
             if (t != null) {
                 val nanos = clock.nanos + ((logFrames[i] - clock.frame) * 1e9 / clock.sampleRate).toLong()
-                out += Placed(n, nanos, t, logLevels[i])
+                out += Placed(n, logFrames[i], nanos, t, logLevels[i])
             }
             n++
         }
         return out
+    }
+
+    /** When [frame] comes out of the speaker, by the speaker's clock as it reads now. */
+    fun heardAt(frame: Long): Long? {
+        val clock = anchor?.takeIf { running } ?: return null
+        return clock.nanos + ((frame - clock.frame) * 1e9 / clock.sampleRate).toLong()
     }
 
     /** Plays one bar's worth of a kit (accent, beat, beat) so its sound can be chosen by ear. */

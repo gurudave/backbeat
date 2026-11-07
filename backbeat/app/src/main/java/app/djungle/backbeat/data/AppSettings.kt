@@ -3,6 +3,7 @@ package app.djungle.backbeat.data
 import android.content.Context
 import android.content.SharedPreferences
 import app.djungle.backbeat.engine.Accent
+import app.djungle.backbeat.engine.Calibration
 import app.djungle.backbeat.engine.Groove
 import app.djungle.backbeat.engine.Kit
 import app.djungle.backbeat.engine.MAX_BPM
@@ -22,10 +23,24 @@ data class Options(
     val buzz: Boolean = false,
     /** Carry on with the screen off or in another app. */
     val keepTicking: Boolean = false,
+    /** The Ear listens while the metronome plays, and judges every hit. */
+    val coach: Boolean = false,
 )
 
 /** A saved set-up, shown as a cassette on the TAPES tab. */
 data class Tape(val id: Long, val name: String, val groove: Groove)
+
+/** A line of the hi-score table. */
+data class HiScore(
+    val initials: String,
+    val points: Int,
+    val rank: String,
+    /** Hits within GREAT, as a percentage. */
+    val tight: Int,
+    val bpm: Int,
+    /** When, in milliseconds since 1970. */
+    val at: Long,
+)
 
 /** Everything is remembered on the phone, nowhere else. */
 object AppSettings {
@@ -51,6 +66,7 @@ object AppSettings {
             subdivision = choice("subdivision", Subdivision.NONE),
             kit = choice("kit", Kit.BLIP),
             volume = getFloat("volume", 0.8f).coerceIn(0.1f, 1f),
+            cross = getInt("cross", 0).coerceIn(0, MAX_CROSS),
         )
     }
 
@@ -61,6 +77,7 @@ object AppSettings {
         .putString("subdivision", groove.subdivision.name)
         .putString("kit", groove.kit.name)
         .putFloat("volume", groove.volume)
+        .putInt("cross", groove.cross)
         .apply()
 
     fun practice(context: Context): Practice = prefs(context).run {
@@ -73,6 +90,7 @@ object AppSettings {
             gapPlay = getInt("gap_play", 2),
             gapRest = getInt("gap_rest", 2),
             stopAfterMinutes = getInt("stop_after", 0),
+            dropout = getInt("dropout", 0).coerceIn(0, 90),
         )
     }
 
@@ -85,6 +103,7 @@ object AppSettings {
         .putInt("gap_play", practice.gapPlay)
         .putInt("gap_rest", practice.gapRest)
         .putInt("stop_after", practice.stopAfterMinutes)
+        .putInt("dropout", practice.dropout)
         .apply()
 
     fun options(context: Context): Options = prefs(context).run {
@@ -92,6 +111,7 @@ object AppSettings {
             flash = getBoolean("flash", false),
             buzz = getBoolean("buzz", false),
             keepTicking = getBoolean("keep_ticking", false),
+            coach = getBoolean("coach", false),
         )
     }
 
@@ -99,6 +119,7 @@ object AppSettings {
         .putBoolean("flash", options.flash)
         .putBoolean("buzz", options.buzz)
         .putBoolean("keep_ticking", options.keepTicking)
+        .putBoolean("coach", options.coach)
         .apply()
 
     fun keepTicking(context: Context): Boolean = prefs(context).getBoolean("keep_ticking", false)
@@ -128,6 +149,7 @@ object AppSettings {
         .put("subdivision", tape.groove.subdivision.name)
         .put("kit", tape.groove.kit.name)
         .put("volume", tape.groove.volume.toDouble())
+        .put("cross", tape.groove.cross)
 
     private fun tapeFrom(json: JSONObject): Tape? {
         val meter = Meter.entries.firstOrNull { it.name == json.optString("meter") } ?: return null
@@ -142,7 +164,94 @@ object AppSettings {
                 subdivision = Subdivision.entries.firstOrNull { it.name == json.optString("subdivision") } ?: Subdivision.NONE,
                 kit = Kit.entries.firstOrNull { it.name == json.optString("kit") } ?: Kit.BLIP,
                 volume = json.optDouble("volume", 0.8).toFloat().coerceIn(0.1f, 1f),
+                cross = json.optInt("cross", 0).coerceIn(0, MAX_CROSS),
             ),
         )
+    }
+
+    /** The most clicks a cross-rhythm may spread across a bar. */
+    const val MAX_CROSS = 9
+
+    // ---- the Ear ----
+
+    fun calibration(context: Context): Calibration? = prefs(context).run {
+        if (!contains("cal_offset")) return null
+        Calibration(
+            offsetNanos = getLong("cal_offset", 0L),
+            echo = getFloat("cal_echo", 0.5f),
+            heard = getInt("cal_heard", 0),
+            played = getInt("cal_played", 0),
+            spreadMillis = getFloat("cal_spread", 0f),
+        )
+    }
+
+    fun setCalibration(context: Context, calibration: Calibration) = prefs(context).edit()
+        .putLong("cal_offset", calibration.offsetNanos)
+        .putFloat("cal_echo", calibration.echo)
+        .putInt("cal_heard", calibration.heard)
+        .putInt("cal_played", calibration.played)
+        .putFloat("cal_spread", calibration.spreadMillis)
+        .apply()
+
+    /** The hand correction to the Ear's timing, in milliseconds. */
+    fun nudge(context: Context): Int = prefs(context).getInt("nudge", 0)
+
+    fun setNudge(context: Context, millis: Int) = prefs(context).edit().putInt("nudge", millis).apply()
+
+    /** The hi-score table, best first. */
+    fun hiScores(context: Context): List<HiScore> {
+        val json = prefs(context).getString("hi_scores", null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(json)
+            (0 until array.length()).map { i ->
+                val o = array.getJSONObject(i)
+                HiScore(
+                    initials = o.optString("initials", "???").take(3),
+                    points = o.optInt("points"),
+                    rank = o.optString("rank", "-"),
+                    tight = o.optInt("tight"),
+                    bpm = o.optInt("bpm"),
+                    at = o.optLong("at"),
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun setHiScores(context: Context, scores: List<HiScore>) {
+        val array = JSONArray()
+        scores.forEach {
+            array.put(
+                JSONObject()
+                    .put("initials", it.initials)
+                    .put("points", it.points)
+                    .put("rank", it.rank)
+                    .put("tight", it.tight)
+                    .put("bpm", it.bpm)
+                    .put("at", it.at),
+            )
+        }
+        prefs(context).edit().putString("hi_scores", array.toString()).apply()
+    }
+
+    /** The initials last written on the table, to offer again. */
+    fun lastInitials(context: Context): String = prefs(context).getString("initials", "AAA") ?: "AAA"
+
+    fun setLastInitials(context: Context, initials: String) = prefs(context).edit().putString("initials", initials).apply()
+
+    // ---- the logbook ----
+
+    /** Seconds played on each day, by its ISO date (2026-11-07). */
+    fun logbook(context: Context): Map<String, Int> {
+        val json = prefs(context).getString("logbook", null) ?: return emptyMap()
+        return runCatching {
+            val o = JSONObject(json)
+            o.keys().asSequence().associateWith { o.optInt(it) }
+        }.getOrDefault(emptyMap())
+    }
+
+    fun setLogbook(context: Context, days: Map<String, Int>) {
+        val o = JSONObject()
+        days.forEach { (day, seconds) -> o.put(day, seconds) }
+        prefs(context).edit().putString("logbook", o.toString()).apply()
     }
 }

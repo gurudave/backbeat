@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Deliberately no INTERNET permission: Backbeat cannot show ads or send anything anywhere.
-     CI fails the build if one ever sneaks in. The rest: a foreground service to keep time
-     with the screen off (only when "keep ticking" is on), its notification, and the buzz. -->
+     CI fails the build if one ever sneaks in, or if any permission not listed here appears.
+     The rest: a foreground service to keep time with the screen off (only when "keep ticking"
+     is on), its notification, the buzz, and the microphone for the Ear, which is asked for
+     only when the Ear is first used, opened only while it listens, and never records: with
+     no internet, nothing it hears could leave the phone anyway. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
@@ -11,6 +14,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- The Ear needs a microphone, but the metronome does not: phones without one may still install it. -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <application
         android:allowBackup="false"
