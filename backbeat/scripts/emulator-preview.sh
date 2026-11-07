@@ -18,7 +18,10 @@ shot() {
 
 # Prints the centre of the first on-screen element whose text or description matches $1.
 find_text() {
-  adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1 || return 1
+  local dumped
+  dumped=$(adb shell uiautomator dump /sdcard/ui.xml 2>&1)
+  # A screen that never settles cannot be read; say so, rather than that nothing matched.
+  case "$dumped" in *"dumped to"*) ;; *) echo "could not read the screen: $dumped"; return 1 ;; esac
   adb pull /sdcard/ui.xml "$OUT/ui.xml" > /dev/null 2>&1 || return 1
   python3 - "$1" "$OUT/ui.xml" <<'PY'
 import re, sys, xml.etree.ElementTree as ET

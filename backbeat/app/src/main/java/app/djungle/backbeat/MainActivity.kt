@@ -3,6 +3,7 @@ package app.djungle.backbeat
 import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
@@ -25,17 +26,19 @@ class MainActivity : ComponentActivity() {
         Ear.nudgeMillis = AppSettings.nudge(app)
         // Keys from a pedal or a keyboard are taken before the on-screen keyboard sees them: it
         // otherwise keeps keys such as the space bar for itself, even with nothing to type into.
-        // That only reaches a view on the way to the focus, so this one keeps the focus whenever
-        // nothing inside it (a tape's label, being written) has taken it.
+        // That only reaches a view on the way to the focus, so this one holds the focus itself,
+        // rather than handing it on to the screen inside: a tape's label still takes it when
+        // tapped, and this view is on the way to it then too.
         val keys = object : FrameLayout(this) {
             override fun dispatchKeyEventPreIme(event: KeyEvent): Boolean =
                 Pedal.dispatch(event) || super.dispatchKeyEventPreIme(event)
         }
         keys.isFocusableInTouchMode = true
+        keys.descendantFocusability = ViewGroup.FOCUS_BEFORE_DESCENDANTS
         if (Build.VERSION.SDK_INT >= 26) keys.defaultFocusHighlightEnabled = false
         keys.addView(ComposeView(this).apply { setContent { BackbeatApp() } })
         setContentView(keys)
-        keys.viewTreeObserver.addOnGlobalFocusChangeListener { _, now -> if (now == null) keys.requestFocus() }
+        keys.requestFocus()
         this.keys = keys
     }
 
