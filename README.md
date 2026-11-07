@@ -1,4 +1,4 @@
-# friendly-pancake
+# backbeat
 
 Home of **[Backbeat](backbeat/)**: an ad-free, offline metronome for Android, in the same
 retro arcade-and-VCR style as Djungleskwidgets and Funhouse. Its clicks are placed to the
