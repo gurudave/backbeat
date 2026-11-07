@@ -9,27 +9,18 @@ import android.os.Vibrator
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -112,10 +103,13 @@ fun BackbeatApp() {
         AppSettings.setOptions(context, next)
     }
 
+    // Counts STARTs, so the layout can unfold the picture for each one.
+    var starts by remember { mutableIntStateOf(0) }
     fun startStop() {
         if (engine.playing) {
             Metronome.stop()
         } else {
+            starts++
             Metronome.update(groove, practice)
             Metronome.start(context)
             if (options.keepTicking) TickService.start(context)
@@ -133,13 +127,16 @@ fun BackbeatApp() {
     val now = remember { mutableStateOf<Now?>(null) }
     val latestOptions by rememberUpdatedState(options)
     val vibrator = remember { context.getSystemService(Vibrator::class.java) }
+    // Each frame is drawn for the moment it reaches the glass, about one refresh after it starts.
+    val framePeriod = remember(view) { (1e9 / (view.display?.refreshRate ?: 60f)).toLong() }
     LaunchedEffect(engine.playing) {
         now.value = null
         if (!engine.playing) return@LaunchedEffect
         var heard = -1L
         while (true) {
-            withFrameNanos { }
-            val n = Metronome.now()
+            // The display's own frame clock ticks evenly, where the time the code runs does not.
+            val frameNanos = withFrameNanos { it }
+            val n = Metronome.now(frameNanos + framePeriod)
             now.value = n
             if (n != null && n.serial != heard) {
                 heard = n.serial
@@ -172,57 +169,33 @@ fun BackbeatApp() {
 
     BackbeatTheme(vibe) {
         val colors = LocalVibe.current
-        BoxWithConstraints(Modifier.fillMaxSize().background(colors.background)) {
+        Box(Modifier.fillMaxSize().background(colors.background)) {
             RetroBackdrop(Modifier.fillMaxSize())
-            // On a tall screen the controls stay put and only the tab scrolls; on a short one
-            // (or turned sideways) everything scrolls together.
-            val roomy = maxHeight >= 640.dp
-            val tubeHeight = if (roomy) (maxHeight * 0.3f).coerceIn(200.dp, 280.dp) else 200.dp
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .then(if (roomy) Modifier else Modifier.verticalScroll(rememberScrollState()))
-                    .statusBarsPadding()
-                    .navigationBarsPadding(),
-            ) {
-                Column(
-                    Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Header(engine.playing, counterSeconds, onLogoTap = { burst++ })
+            BackbeatLayout(
+                header = { Header(engine.playing, onLogoTap = { burst++ }) },
+                tube = { height, fold ->
                     Tube(
                         groove = groove,
                         practice = practice,
                         playing = engine.playing,
                         liveBpm = engine.bpm,
                         now = now,
+                        counterSeconds = counterSeconds,
                         flash = options.flash,
                         onAccent = { changeGroove(groove.cycleAccent(it)) },
-                        height = tubeHeight,
+                        height = height,
+                        fold = fold,
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        RepeatKey("-", "slower", onStep = { changeGroove(groove.withBpm(groove.bpm - 1)) })
-                        TempoDial(groove.bpm, onChange = { changeGroove(groove.withBpm(it)) }, modifier = Modifier.weight(1f))
-                        RepeatKey("+", "faster", onStep = { changeGroove(groove.withBpm(groove.bpm + 1)) })
-                        TapKey(onTap = {
-                            tapper.tap(SystemClock.uptimeMillis())?.let { changeGroove(groove.withBpm(it)) }
-                        })
-                    }
-                }
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Tab.entries.forEach { RetroChip(it.label, selected = tab == it, onClick = { tab = it }) }
-                }
-                // Each tab starts at its top, rather than wherever the last one was scrolled to.
-                val panelScroll = key(tab) { rememberScrollState() }
-                Column(
-                    if (roomy) Modifier.weight(1f).verticalScroll(panelScroll) else Modifier,
-                ) {
+                },
+                tempo = {
+                    TempoRow(
+                        bpm = groove.bpm,
+                        onBpm = { changeGroove(groove.withBpm(it)) },
+                        onTap = { tapper.tap(SystemClock.uptimeMillis())?.let { changeGroove(groove.withBpm(it)) } },
+                    )
+                },
+                tabs = { TabChips(tab) { tab = it } },
+                panel = {
                     when (tab) {
                         Tab.BEAT -> BeatPanel(groove, ::changeGroove) { kit ->
                             changeGroove(groove.copy(kit = kit))
@@ -263,14 +236,11 @@ fun BackbeatApp() {
                             onOptions = ::changeOptions,
                         )
                     }
-                    Box(Modifier.height(12.dp))
-                }
-                TransportButton(
-                    engine.playing,
-                    onClick = ::startStop,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 10.dp),
-                )
-            }
+                },
+                transport = { TransportButton(engine.playing, onClick = ::startStop) },
+                panelKey = tab,
+                unfold = starts,
+            )
 
             PixelBurst(burst, colors.stripes, Modifier.fillMaxWidth().height(300.dp))
             ToastPill(

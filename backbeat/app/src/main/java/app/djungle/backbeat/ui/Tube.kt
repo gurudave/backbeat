@@ -26,12 +26,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -41,6 +43,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import app.djungle.backbeat.engine.Accent
 import app.djungle.backbeat.engine.Groove
@@ -61,8 +64,12 @@ private fun Accent.height(): Float = when (this) {
 }
 
 /**
- * The television: the tempo in big marquee digits, the time signature and bar count in VCR
- * lettering, and a row of beat lights with a pixel ball bouncing along them.
+ * The television: the tempo in big marquee digits, the time signature, bar and tape counter
+ * in VCR lettering, and a row of beat lights with a pixel ball bouncing along them.
+ *
+ * [fold] runs from 0 (the full picture) to 1 (folded into a strip, to make room for the
+ * settings): the digits fade away, the tempo moves up into the top line, and the lights
+ * crouch a little lower.
  *
  * [now] changes every frame while playing. It is only read while drawing, or through
  * [derivedStateOf], so the screen redraws each frame without recomposing.
@@ -74,13 +81,23 @@ fun Tube(
     playing: Boolean,
     liveBpm: Int?,
     now: State<Now?>,
+    counterSeconds: Long,
     flash: Boolean,
     onAccent: (Int) -> Unit,
     height: Dp,
+    fold: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val vibe = LocalVibe.current
     val blink = rememberBlink(520L)
+    // The digits get whatever height the top line and the lights leave. Short of room, they
+    // fade out and the tempo moves up into the top line instead.
+    val lightsBox = lerp(LIGHTS_BOX, LIGHTS_BOX_FOLDED, fold)
+    val digitsRoom = height - TOP_LINE - 16.dp - lightsBox
+    val digitsShown = ((digitsRoom - DIGITS_GONE) / DIGITS_FADE).coerceIn(0f, 1f)
+    val folded = digitsShown < 0.5f
+    // The digits are gone before the tempo appears in the top line, so it is never shown twice.
+    val digitsAlpha = ((digitsShown - 0.5f) * 2f).coerceIn(0f, 1f)
     val bar by remember { derivedStateOf { now.value?.beat?.bar } }
     val silent by remember { derivedStateOf { now.value?.beat?.audible == false } }
     val bpm = if (playing) liveBpm ?: groove.bpm else groove.bpm
@@ -102,24 +119,29 @@ fun Tube(
                 },
         ) {
             Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().height(TOP_LINE), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "${groove.meter.label}  ${groove.subdivision.label.uppercase()}",
+                        if (folded) {
+                            "$bpm BPM  ${groove.meter.label}"
+                        } else {
+                            "${groove.meter.label}  ${groove.subdivision.label.uppercase()}"
+                        },
                         style = osdStyle(20.sp),
                         maxLines = 1,
                     )
                     Box(Modifier.weight(1f))
                     val counter = bar
                     if (playing) {
-                        Text("BAR " + ((counter ?: 0) + 1).toString().padStart(3, '0'), style = osdStyle(20.sp))
+                        val barText = "BAR " + ((counter ?: 0) + 1).toString().padStart(3, '0')
+                        Text(if (folded) barText else "$barText  ${tapeCounter(counterSeconds)}", style = osdStyle(20.sp), maxLines = 1)
                     } else {
-                        Text("PRESS START", style = osdStyle(20.sp, if (blink) Color.White else Color.Transparent))
+                        Text("PRESS START", style = osdStyle(20.sp, if (blink) Color.White else Color.Transparent), maxLines = 1)
                     }
                 }
-                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds(), contentAlignment = Alignment.Center) {
                     val room = maxWidth
                     val tall = maxHeight - STATUS_HEIGHT
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (digitsAlpha > 0f) Column(Modifier.graphicsLayer { alpha = digitsAlpha }, horizontalAlignment = Alignment.CenterHorizontally) {
                         BigTempo(bpm, room, tall)
                         val status = when {
                             playing && silent -> if (blink) "· SILENT BAR ·" else ""
@@ -129,7 +151,7 @@ fun Tube(
                         Text(status, style = osdStyle(20.sp), maxLines = 1, modifier = Modifier.padding(top = 4.dp))
                     }
                 }
-                BeatLights(groove, now, onAccent)
+                BeatLights(groove, now, onAccent, lightsBox)
             }
             Box(Modifier.matchParentSize().scanlines(Color.Black.copy(alpha = if (vibe.isDark) 0.16f else 0.05f)))
         }
@@ -138,6 +160,28 @@ fun Tube(
 
 /** Room left under the digits for the line that names the tempo. */
 private val STATUS_HEIGHT = 30.dp
+
+/** The line across the top of the picture: time signature, bar and tape counter. */
+private val TOP_LINE = 24.dp
+
+/** Below this height the digits are not drawn at all; they fade in over the next [DIGITS_FADE]. */
+private val DIGITS_GONE = 40.dp
+private val DIGITS_FADE = 30.dp
+
+/** The least height for the whole picture with its digits, and no folding. */
+val TUBE_UNFOLDED_MIN = 212.dp
+
+/** The tape counter: 0:05, 12:34, or 1:02:03 after an hour. */
+private fun tapeCounter(seconds: Long): String =
+    if (seconds >= 3600) "%d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60)
+    else "%d:%02d".format(seconds / 60, seconds % 60)
+
+/** The height of the picture folded into a strip: one line of text over the lights. */
+val TUBE_FOLDED = 124.dp
+
+/** The box the lights and their ball sit in, unfolded and folded. */
+private val LIGHTS_BOX = 96.dp
+private val LIGHTS_BOX_FOLDED = 84.dp
 
 /** The tempo in marquee digits, as big as [width] by [height] allows. */
 @Composable
@@ -148,8 +192,10 @@ private fun BigTempo(bpm: Int, width: Dp, height: Dp) {
     val style = TextStyle(fontFamily = Arcade, fontSize = 56.sp)
     // Always sized for three digits, so the number does not jump about as it changes.
     val natural = remember(measurer, density) { measurer.measure("300", style, softWrap = false).size }
+    // On a tablet's big picture the digits may grow; on a phone they stay at their natural size.
+    val largest = if (width > 480.dp) 2.4f else 1f
     val scale = with(density) {
-        minOf(1f, width.toPx() * 0.8f / natural.width, height.toPx() / natural.height)
+        minOf(largest, width.toPx() * 0.8f / natural.width, height.toPx() / natural.height)
     }.coerceAtLeast(0.3f)
     StripedText(bpm.toString(), style.copy(fontSize = 56.sp * scale), vibe.stripes, blockShadow())
 }
@@ -160,13 +206,13 @@ private fun BigTempo(bpm: Int, width: Dp, height: Dp) {
  * and a pixel ball hops from light to light, landing on each just as its beat sounds.
  */
 @Composable
-private fun BeatLights(groove: Groove, now: State<Now?>, onAccent: (Int) -> Unit) {
+private fun BeatLights(groove: Groove, now: State<Now?>, onAccent: (Int) -> Unit, boxHeight: Dp) {
     val vibe = LocalVibe.current
     val shadow = blockShadow()
     val beats = groove.beats
     val gap = if (beats > 8) 3.dp else 6.dp
     val steps = groove.subdivision.steps
-    Box(Modifier.fillMaxWidth().height(96.dp)) {
+    Box(Modifier.fillMaxWidth().height(boxHeight)) {
         Row(
             Modifier.fillMaxWidth().height(LIGHTS_HEIGHT).align(Alignment.BottomCenter),
             horizontalArrangement = Arrangement.spacedBy(gap),

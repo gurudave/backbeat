@@ -14,42 +14,49 @@ import app.djungle.backbeat.engine.Bounce
 import app.djungle.backbeat.engine.Groove
 import app.djungle.backbeat.engine.Kit
 import app.djungle.backbeat.engine.Meter
+import app.djungle.backbeat.engine.Metronome
+import app.djungle.backbeat.engine.Now
 import app.djungle.backbeat.engine.Practice
 import app.djungle.backbeat.engine.Subdivision
 import app.djungle.backbeat.engine.Synth
 import java.io.DataOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Renders pictures and sounds of the engine for CI to look over:
+ * Renders pictures and sounds of the engine for CI to look over (mode=gallery, the default):
  *   kits.png        every sound of every kit, as an oscilloscope trace
  *   bars.png        a few bars of several grooves, with a line where each click was scheduled
  *   timing.txt      for every click in those bars, how long after its line the sound starts
  *   sounds/KIT.wav  two bars of each kit, to listen to
+ *
+ * And checks the ball's clock against the emulator's real sound card (mode=clock):
+ *   clock.txt       how smoothly the ball would move for the first seconds after START
  */
 class DemoActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Rendered once per process, even if the emulator recreates the activity meanwhile.
-        if (!started.compareAndSet(false, true)) {
+        val mode = intent.getStringExtra("mode") ?: "gallery"
+        // Each mode runs once per process, even if the emulator recreates the activity meanwhile.
+        if (!started.add(mode)) {
             finish()
             return
         }
         val app = applicationContext
         Thread({
-            runCatching { renderGallery(app) }.onFailure { Log.e(TAG, "gallery failed", it) }
+            runCatching { if (mode == "clock") checkClock(app) else renderGallery(app) }
+                .onFailure { Log.e(TAG, "$mode failed", it) }
             runOnUiThread { finish() }
-        }, "backbeat-gallery").start()
+        }, "backbeat-$mode").start()
     }
 
     private companion object {
         const val TAG = "BackbeatDemo"
-        val started = AtomicBoolean(false)
+        val started: MutableSet<String> = ConcurrentHashMap.newKeySet()
         const val RATE = 48_000
         const val INK = 0xFFE6EBFF.toInt()
         const val TUBE = 0xFF05060F.toInt()
@@ -86,6 +93,50 @@ class DemoActivity : ComponentActivity() {
                 int(audio.size * 2)
                 audio.forEach { short((it.coerceIn(-1f, 1f) * 32767).roundToInt()) }
             }
+        }
+
+        /** Where the ball is, in beats from START: whole beats heard, and the way to the next. */
+        fun position(now: Now, beats: Int): Double = now.beat.bar * beats + now.beat.beat + now.beatProgress.toDouble()
+
+        /**
+         * Plays 120 BPM through the real sound card and, at 60 frames a second, asks where the ball
+         * would be, by the steadied clock the screen uses and by the speaker's raw clock. A ball
+         * that moves smoothly advances by the same amount every frame; a stutter shows as a step
+         * backwards, or a step far from the rest.
+         */
+        fun checkClock(context: Context) {
+            val bpm = 120
+            Metronome.update(Groove(bpm = bpm), Practice())
+            val frame = 16_666_667L
+            val begin = System.nanoTime()
+            Metronome.start(context)
+            val steady = ArrayList<Pair<Long, Double?>>()
+            val raw = ArrayList<Pair<Long, Double?>>()
+            var next = begin
+            while (next - begin < 3_500_000_000L) {
+                val wait = next - System.nanoTime()
+                if (wait > 0) Thread.sleep(wait / 1_000_000, (wait % 1_000_000).toInt())
+                steady += (next - begin) to Metronome.now(next)?.let { position(it, 4) }
+                raw += (next - begin) to Metronome.now(next, steady = false)?.let { position(it, 4) }
+                next += frame
+            }
+            Metronome.stop()
+            val expected = bpm / 60.0 * frame / 1e9
+            fun describe(name: String, samples: List<Pair<Long, Double?>>): String {
+                val first = samples.firstOrNull { it.second != null }?.first
+                val shown = samples.mapNotNull { (t, p) -> p?.let { t to it } }
+                val steps = shown.zipWithNext { a, b -> b.second - a.second }
+                val back = steps.filter { it < -1e-9 }
+                val worst = steps.maxOfOrNull { kotlin.math.abs(it - expected) } ?: 0.0
+                val judders = steps.count { kotlin.math.abs(it - expected) > expected * 0.3 }
+                // How far, in milliseconds of music, the worst step was from an even one.
+                val worstMs = worst / (bpm / 60.0) * 1000
+                return "$name: first click shown ${first?.let { it / 1_000_000 } ?: "never"} ms after START, " +
+                    "${back.size} steps backwards, $judders uneven steps of ${steps.size}, worst ${"%.1f".format(worstMs)} ms off"
+            }
+            val report = describe("steadied (what the screen draws)", steady) + "\n" + describe("raw speaker clock", raw) + "\n"
+            File(dir(context), "clock.txt").writeText(report)
+            Log.i(TAG, "clock:\n$report")
         }
 
         /** Draws [audio] as a trace in a [w]×[h] cell, loudest point per column. */

@@ -72,8 +72,12 @@ adb logcat -c
 echo "== Rendering the contact sheets, timing report and sounds"
 adb shell am start -W -n "$PKG/.DemoActivity"
 sleep 20
+
+echo "== How smoothly the ball moves after START, on the emulator's sound card"
+adb shell am start -W -n "$PKG/.DemoActivity" --es mode clock
+sleep 8
 adb pull "/sdcard/Android/data/$PKG/files/preview" "$OUT/gallery" || echo "could not pull the gallery"
-cat "$OUT/gallery/timing.txt" 2>/dev/null || true
+cat "$OUT/gallery/timing.txt" "$OUT/gallery/clock.txt" 2>/dev/null || true
 
 echo "== First launch"
 adb shell am start -W -n "$PKG/.MainActivity"

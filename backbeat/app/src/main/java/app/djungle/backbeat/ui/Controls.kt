@@ -46,7 +46,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,41 +63,37 @@ import kotlin.math.roundToInt
 @Composable
 fun osdColor(): Color = LocalVibe.current.let { if (it.isDark) Color.White else it.ink }
 
-/** The VCR status line, the marquee logo and the cabinet stripes. */
+/**
+ * One slim line: the deck's PLAY or STOP, the marquee logo, and the channel, over the cabinet
+ * stripes. It used to be three rows deep; the room went to the controls.
+ */
 @Composable
-fun Header(playing: Boolean, counterSeconds: Long, onLogoTap: () -> Unit) {
+fun Header(playing: Boolean, onLogoTap: () -> Unit) {
     val vibe = LocalVibe.current
     Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             DeckMark(playing, color = osdColor())
-            // The tape counter: how long this practice has been going.
-            Text(
-                "%d:%02d:%02d".format(counterSeconds / 3600, counterSeconds / 60 % 60, counterSeconds % 60),
-                style = osdStyle(color = osdColor()),
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                textAlign = TextAlign.Center,
-            )
+            val measurer = rememberTextMeasurer()
+            BoxWithConstraints(Modifier.weight(1f).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+                val logo = TextStyle(fontFamily = Arcade, fontSize = 18.sp)
+                val natural = remember(measurer) { measurer.measure(LOGO, logo, softWrap = false).size.width }
+                val room = constraints.maxWidth * 0.95f
+                val scale = if (natural > room) room / natural else 1f
+                StripedText(
+                    LOGO,
+                    logo.copy(fontSize = 18.sp * scale),
+                    vibe.stripes,
+                    blockShadow(),
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onLogoTap,
+                    ),
+                )
+            }
             Text(vibe.channelName, style = osdStyle(color = osdColor()))
         }
-        val measurer = rememberTextMeasurer()
-        BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            val logo = TextStyle(fontFamily = Arcade, fontSize = 30.sp)
-            val natural = remember(measurer) { measurer.measure(LOGO, logo, softWrap = false).size.width }
-            val room = constraints.maxWidth * 0.97f
-            val scale = if (natural > room) room / natural else 1f
-            StripedText(
-                LOGO,
-                logo.copy(fontSize = 30.sp * scale),
-                vibe.stripes,
-                blockShadow(),
-                Modifier.clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onLogoTap,
-                ),
-            )
-        }
-        ArcadeStripes(vibe.stripes, Modifier.fillMaxWidth().padding(top = 8.dp), band = 3.dp, gap = 2.dp)
+        ArcadeStripes(vibe.stripes, Modifier.fillMaxWidth().padding(top = 6.dp), band = 2.dp, gap = 1.dp)
     }
 }
 
@@ -203,6 +198,18 @@ fun TempoDial(bpm: Int, onChange: (Int) -> Unit, modifier: Modifier = Modifier) 
             )
             drawScanlines(Color.Black.copy(alpha = if (vibe.isDark) 0.18f else 0.04f))
         }
+    }
+}
+
+/** The tempo controls in one row: slower, the dial, faster, and TAP. */
+@Composable
+fun TempoRow(bpm: Int, onBpm: (Int) -> Unit, onTap: () -> Unit, modifier: Modifier = Modifier) {
+    val current by rememberUpdatedState(bpm)
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        RepeatKey("-", "slower", onStep = { onBpm(current - 1) })
+        TempoDial(bpm, onChange = onBpm, modifier = Modifier.weight(1f))
+        RepeatKey("+", "faster", onStep = { onBpm(current + 1) })
+        TapKey(onTap = onTap)
     }
 }
 
