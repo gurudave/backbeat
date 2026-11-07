@@ -225,6 +225,9 @@ object Ear {
         val started = System.nanoTime()
         var guesses = ArrayList<Int>()
         var foundAt = 0L
+        // When the first click is heard. The speaker's clock is least sure of itself just after
+        // START, so the first second is left out of calibration and judging.
+        var firstClick = 0L
 
         try {
             while (session == mine) {
@@ -242,10 +245,11 @@ object Ear {
                     Metronome.placedSince(lastPlaced)?.forEach { p ->
                         lastPlaced = p.serial
                         clicks.addLast(p)
+                        if (firstClick == 0L) firstClick = p.nanos
                         if (mode == EarMode.COACH && !echoFree && p.level > 0f) {
                             // When the microphone hears this click: the speaker's time, back on its own clock.
                             val at = micFrame(p.nanos - offset)
-                            detector.shadow(at - rate * 6L / 1000, at + rate * 30L / 1000, echo * p.level * SHADOW_MARGIN)
+                            detector.shadow(at - rate * 10L / 1000, at + rate * 30L / 1000, echo * p.level * SHADOW_MARGIN)
                         }
                     }
                 }
@@ -271,6 +275,7 @@ object Ear {
                         val after = clicks.firstOrNull { it.nanos > hit }
                         if (after == null && hit > now - KEEP_NANOS / 2) continue
                         iterator.remove()
+                        if (firstClick == 0L || hit < firstClick + SETTLE_NANOS) continue
                         val before = clicks.lastOrNull { it.nanos <= hit }
                         // By the speaker's clock as it reads now, which may have firmed up since the click was placed.
                         fun click(p: Placed) = Click(Metronome.heardAt(p.frame) ?: p.nanos, p.tick)
@@ -306,11 +311,19 @@ object Ear {
 
                 if (mode == EarMode.CALIBRATE) {
                     // Done once enough clicks have been played and had time to be heard.
-                    val played = clicks.filter { it.level > 0f && it.nanos < now - LATE_NANOS }
+                    val played = clicks.filter {
+                        it.level > 0f && it.nanos < now - LATE_NANOS && firstClick != 0L && it.nanos >= firstClick + SETTLE_NANOS
+                    }
                     val gaveUp = now - started > CALIBRATE_GIVE_UP_NANOS
                     if (played.size >= CALIBRATION_CLICKS || gaveUp) {
-                        val result = Calibration.measure(played.map { (Metronome.heardAt(it.frame) ?: it.nanos) to it.level }, heard)
+                        val times = played.map { (Metronome.heardAt(it.frame) ?: it.nanos) to it.level }
+                        val result = Calibration.measure(times, heard)
                         Log.i(TAG, "calibration: $result from ${played.size} clicks and ${heard.size} hits")
+                        if (result == null) {
+                            // How late each click was heard, for anyone looking into a phone it fails on.
+                            val lateness = times.map { (at, _) -> heard.minByOrNull { abs(it.first - at) }?.let { (it.first - at) / 1e6 } }
+                            Log.i(TAG, "calibration offsets (ms): ${lateness.joinToString { it?.let { "%.1f".format(it) } ?: "-" }}")
+                        }
                         if (session == mine) {
                             session++
                             finishCalibrating()
@@ -365,7 +378,10 @@ object Ear {
     private const val LATE_NANOS = 400_000_000L
 
     /** ...and gives up after this long. */
-    private const val CALIBRATE_GIVE_UP_NANOS = 9_000_000_000L
+    private const val CALIBRATE_GIVE_UP_NANOS = 11_000_000_000L
+
+    /** How long after the first click the speaker's clock is trusted for calibration and judging. */
+    private const val SETTLE_NANOS = 1_000_000_000L
 
     /** A tempo guess is only counted towards "found" if the finder is this sure of it. */
     private const val SURE = 0.35f

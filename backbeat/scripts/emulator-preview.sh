@@ -100,6 +100,8 @@ sleep 2
 
 echo "== Practice aids"
 tap_text 'tempo ramp' && shot 05-ramp-on 2
+# Past the logbook and the ramp's settings.
+scroll_panel
 scroll_panel
 tap_text 'silent bars' && shot 06-silent-bars-on 2
 
@@ -136,7 +138,7 @@ sleep 5
 tap_text '^ear$' && shot 13-ear-tab 2
 # The first time, it calibrates: it listens to its own clicks for a few seconds.
 tap_text 'judge my timing' && shot 14-calibrating 3
-sleep 7
+sleep 10
 shot 15-calibrated 0
 START=$(find_text '^start$') || START=""
 tap_at "$START" start
@@ -154,6 +156,9 @@ shot 20-finding-a-tempo 6
 # Once sure, it stops listening by itself.
 sleep 9
 shot 21-tempo-found 0
+# The picture unfolded to show the tempo, so the SET key is further down.
+scroll_panel
+scroll_panel
 tap_text '^set [0-9]' && shot 22-tempo-set 2
 
 echo "== A cross-rhythm, and the big screen"

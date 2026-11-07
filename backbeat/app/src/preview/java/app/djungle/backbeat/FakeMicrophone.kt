@@ -6,6 +6,7 @@ import app.djungle.backbeat.engine.InputStamp
 import app.djungle.backbeat.engine.Kit
 import app.djungle.backbeat.engine.Metronome
 import app.djungle.backbeat.engine.Microphone
+import app.djungle.backbeat.engine.Placed
 import app.djungle.backbeat.engine.Synth
 import kotlin.math.exp
 import kotlin.random.Random
@@ -34,6 +35,11 @@ class FakeMicrophone : Microphone {
 
     private val due = ArrayList<Sound>()
     private var loopBeat = 0L
+
+    /** Clicks placed but not yet sounding, and when the player means to clap for each. */
+    private class Coming(val placed: Placed, val clapMillis: Double?)
+
+    private val coming = ArrayList<Coming>()
 
     private lateinit var drums: List<FloatArray>
     private lateinit var claps: List<FloatArray>
@@ -77,11 +83,22 @@ class FakeMicrophone : Microphone {
         val playing = Metronome.isPlaying
         Metronome.placedSince(lastPlaced)?.forEach { p ->
             lastPlaced = p.serial
-            if (p.level > 0f) due += Sound(frameOf(p.nanos), clicks.getValue(if (p.tick.isDownbeat) 0 else 1), p.level * ECHO)
-            if (Ear.mode == EarMode.COACH && p.tick.isBeat) {
-                val offset = ((CLAP_MEAN_MILLIS + gaussian() * CLAP_SPREAD_MILLIS) * 1e6).toLong()
-                due += Sound(frameOf(p.nanos + offset), claps[random.nextInt(claps.size)], 0.55f + 0.2f * random.nextFloat())
-            }
+            val clap = if (Ear.mode == EarMode.COACH && p.tick.isBeat) CLAP_MEAN_MILLIS + gaussian() * CLAP_SPREAD_MILLIS else null
+            coming += Coming(p, clap)
+        }
+        // A click sounds when the speaker's clock, as it reads by then, says it does: a click
+        // placed early on, while that clock was still settling, sounds when it really plays.
+        val soon = frames + count + rate / 50
+        val each = coming.iterator()
+        while (each.hasNext()) {
+            val c = each.next()
+            val p = c.placed
+            val heard = Metronome.heardAt(p.frame) ?: p.nanos
+            val first = minOf(frameOf(heard), c.clapMillis?.let { frameOf(heard + (it * 1e6).toLong()) } ?: Long.MAX_VALUE)
+            if (first > soon) continue
+            each.remove()
+            if (p.level > 0f) due += Sound(frameOf(heard), clicks.getValue(if (p.tick.isDownbeat) 0 else 1), p.level * ECHO)
+            c.clapMillis?.let { due += Sound(frameOf(heard + (it * 1e6).toLong()), claps[random.nextInt(claps.size)], 0.55f + 0.2f * random.nextFloat()) }
         }
         if (!playing && Ear.mode == EarMode.TEMPO) {
             // A drum loop: kick on one and three, snare on two and four, hi-hats in quavers.
@@ -99,14 +116,14 @@ class FakeMicrophone : Microphone {
 
         for (i in 0 until count) buffer[i] = ((random.nextFloat() * 2 - 1) * HISS)
         val end = frames + count
-        val each = due.iterator()
-        while (each.hasNext()) {
-            val s = each.next()
+        val sounding = due.iterator()
+        while (sounding.hasNext()) {
+            val s = sounding.next()
             if (s.frame >= end) continue
             for (i in maxOf(s.frame, frames) until minOf(end, s.frame + s.samples.size)) {
                 buffer[(i - frames).toInt()] += s.samples[(i - s.frame).toInt()] * s.gain
             }
-            if (s.frame + s.samples.size <= end) each.remove()
+            if (s.frame + s.samples.size <= end) sounding.remove()
         }
         frames = end
         return count

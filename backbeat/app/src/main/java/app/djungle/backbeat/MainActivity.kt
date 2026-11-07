@@ -2,8 +2,9 @@ package app.djungle.backbeat
 
 import android.os.Bundle
 import android.view.KeyEvent
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
+import androidx.compose.ui.platform.ComposeView
 import app.djungle.backbeat.data.AppSettings
 import app.djungle.backbeat.data.Logbook
 import app.djungle.backbeat.engine.Ear
@@ -21,10 +22,17 @@ class MainActivity : ComponentActivity() {
         Metronome.sessionEnded = { millis -> Logbook.add(app, millis) }
         Ear.remember(AppSettings.calibration(app))
         Ear.nudgeMillis = AppSettings.nudge(app)
-        setContent { BackbeatApp() }
+        // Keys from a pedal or a keyboard are taken before the on-screen keyboard sees them: it
+        // otherwise keeps keys such as the space bar for itself, even with nothing to type into.
+        val keys = object : FrameLayout(this) {
+            override fun dispatchKeyEventPreIme(event: KeyEvent): Boolean =
+                Pedal.dispatch(event) || super.dispatchKeyEventPreIme(event)
+        }
+        keys.addView(ComposeView(this).apply { setContent { BackbeatApp() } })
+        setContentView(keys)
     }
 
-    /** A pedal, a headset's button or a keyboard: see [Pedal]. */
+    /** A pedal, a headset's button or a keyboard, if nothing on the screen has focus: see [Pedal]. */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = Pedal.dispatch(event) || super.dispatchKeyEvent(event)
 
     override fun onStop() {

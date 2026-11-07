@@ -475,10 +475,11 @@ private fun CrossTrack(groove: Groove, now: State<Now?>, modifier: Modifier) {
             val left = k * (w + gap)
             drawRect(shadow, Offset(left + 2.dp.toPx(), top + 2.dp.toPx()), Size(w - 3.dp.toPx(), h))
             drawRect(
-                if (k == sounding) color else color.copy(alpha = 0.35f),
+                if (k == sounding) vibe.accent else color.copy(alpha = 0.7f),
                 Offset(left, top),
                 Size(w - 3.dp.toPx(), h),
             )
+            drawRect(vibe.ink.copy(alpha = if (k == sounding) 0.9f else 0.4f), Offset(left, top), Size(w - 3.dp.toPx(), h), style = Stroke(1.5.dp.toPx()))
         }
         if (n != null && crossTick != null) {
             // From the middle of the block just heard towards the middle of the next.
