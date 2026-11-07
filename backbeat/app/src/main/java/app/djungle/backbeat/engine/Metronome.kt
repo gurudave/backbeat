@@ -77,7 +77,24 @@ object Metronome {
 
     @Volatile private var anchor: Anchor? = null
 
+    /** The steadied clock the display reads; it belongs to the main thread. */
+    private var display: DisplayClock? = null
+    private var displaySession = -1
+
+    /** Every kit's sounds, made once for the speaker's sample rate. */
+    @Volatile private var kitCache: Pair<Int, Map<Kit, KitSounds>>? = null
+
     val isPlaying: Boolean get() = running
+
+    /** Makes the sounds ahead of time, off the main thread, so START has nothing to wait for. */
+    fun prepare() {
+        Thread({ runCatching { kits(sampleRate()) } }, "backbeat-prepare").start()
+    }
+
+    private fun kits(sampleRate: Int): Map<Kit, KitSounds> {
+        kitCache?.let { (rate, kits) -> if (rate == sampleRate) return kits }
+        return Kit.entries.associateWith { Synth.render(it, sampleRate) }.also { kitCache = sampleRate to it }
+    }
 
     /** Hands over new settings. The audio thread picks them up within a few milliseconds. */
     fun update(groove: Groove, practice: Practice) {
@@ -147,7 +164,7 @@ object Metronome {
     private fun play(mine: Int) {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
         val sampleRate = sampleRate()
-        val kits = Kit.entries.associateWith { Synth.render(it, sampleRate) }
+        val allKits = kits(sampleRate)
         // Five-millisecond blocks, with about a tenth of a second queued ahead of the speaker.
         val block = sampleRate / 200
         val minimum = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_FLOAT)
@@ -173,6 +190,7 @@ object Metronome {
         var written = 0L
         var lastBpm = sequencer.bpm
         var timeUp = false
+        val clock = ClockReader(sampleRate)
         try {
             track.play()
             while (running && session == mine) {
@@ -186,7 +204,7 @@ object Metronome {
                     sequencer.practice = p
                     appliedPractice = p
                 }
-                val sounds = kits.getValue(g.kit)
+                val sounds = allKits.getValue(g.kit)
                 val limit = p.stopAfterMinutes * 60L * sampleRate
                 val start = written
                 sequencer.advance(block) { offset, tick ->
@@ -206,7 +224,7 @@ object Metronome {
                 }
                 written += block
                 // Read the speaker's clock every few blocks; it moves smoothly in between.
-                if ((written / block) % 4 == 0L) readClock(track, stamp, sampleRate)
+                if ((written / block) % 4 == 0L) clock.read(track, stamp)?.let { if (session == mine) anchor = it }
                 if (sequencer.bpm != lastBpm) {
                     lastBpm = sequencer.bpm
                     if (session == mine) mutableState.update { it.copy(bpm = lastBpm) }
@@ -243,20 +261,45 @@ object Metronome {
         logCount = n + 1
     }
 
-    private fun readClock(track: AudioTrack, stamp: AudioTimestamp, sampleRate: Int) {
-        anchor = if (track.getTimestamp(stamp)) {
-            Anchor(stamp.framePosition, stamp.nanoTime, sampleRate)
-        } else {
-            // Before the first timestamp: the play head, which runs a little ahead of the speaker.
-            Anchor(track.playbackHeadPosition.toLong() and 0xFFFF_FFFFL, System.nanoTime(), sampleRate)
+    /**
+     * Reads the speaker's clock for one START. Only the sound card's own timestamps are trusted:
+     * the play head runs ahead of the speaker by its delay, and starting from it made the ball
+     * set off early and then jump back. A phone that never gives timestamps gets the play head
+     * after a short wait, as the best there is.
+     */
+    private class ClockReader(private val sampleRate: Int) {
+        private val started = System.nanoTime()
+        private var trusted = false
+
+        fun read(track: AudioTrack, stamp: AudioTimestamp): Anchor? {
+            if (track.getTimestamp(stamp) && stamp.framePosition > 0) {
+                trusted = true
+                return Anchor(stamp.framePosition, stamp.nanoTime, sampleRate)
+            }
+            if (trusted || System.nanoTime() - started < 400_000_000L) return null
+            return Anchor(track.playbackHeadPosition.toLong() and 0xFFFF_FFFFL, System.nanoTime(), sampleRate)
         }
     }
 
-    /** What is being heard at [nanoTime] (from [System.nanoTime]), or null before the first click. */
-    fun now(nanoTime: Long = System.nanoTime()): Now? {
+    /**
+     * What is being heard at [nanoTime] (from [System.nanoTime]), or null before the first click.
+     * For the display, from the main thread only: it reads a steadied clock, which [steady]
+     * set to false skips (to compare the two).
+     */
+    fun now(nanoTime: Long = System.nanoTime(), steady: Boolean = true): Now? {
         if (!running) return null
         val clock = anchor ?: return null
-        val heard = clock.frame + (nanoTime - clock.nanos) * clock.sampleRate / 1_000_000_000L
+        val raw = clock.frame + (nanoTime - clock.nanos) * clock.sampleRate / 1e9
+        val heard = if (steady) {
+            val mine = session
+            val smooth = display?.takeIf { displaySession == mine } ?: DisplayClock(clock.sampleRate).also {
+                display = it
+                displaySession = mine
+            }
+            smooth.show(raw, nanoTime).toLong()
+        } else {
+            raw.toLong()
+        }
         val count = logCount
         var tick: Tick? = null
         var serial = 0L
@@ -298,7 +341,7 @@ object Metronome {
         if (running) return
         Thread({
             val sampleRate = sampleRate()
-            val sounds = Synth.render(kit, sampleRate)
+            val sounds = kits(sampleRate).getValue(kit)
             val gap = (sampleRate * 0.24).toInt()
             val pcm = FloatArray(gap * 2 + maxOf(sounds.normal.size, sounds.strong.size))
             val gain = loudness(volume)

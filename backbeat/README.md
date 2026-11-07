@@ -36,6 +36,15 @@ fails the build if network access ever creeps in.
 - **Six channels** for the look: arcade, high score, roller rink, camcorder, sunday drive and
   record shop
 
+### Room for the controls
+
+The screen is one slim status line, the television, the tempo controls, the tabs and START.
+Scroll a tab's settings up and the television first **folds into a strip** (tempo, time
+signature, beat lights and ball, all still live), handing its room to the settings. Scroll
+back to the top, or press START, and it unfolds. With the phone **on its side**, or on a
+tablet, the screen splits in two: the television and tempo on the left, the tabs and START
+on the right. A small window scrolls as one column.
+
 ## Keeping good time
 
 A metronome that drifts is worse than none, so the timing does not depend on how busy the
@@ -52,6 +61,11 @@ phone is.
 - **The lights follow your ears, not the code.** The engine asks the sound card which frame
   is coming out of the speaker *now*, so the lights, ball, flash and buzz happen when a click
   is heard, after the speaker's own delay, not when it was written.
+- **The ball glides.** The sound card's clock arrives in uneven steps, and is often revised
+  in the first moments after START. The display reads it through a steadied clock
+  (`engine/DisplayClock.kt`) that runs on by itself, eases small errors out over a few
+  frames and never runs backwards, and each frame is drawn for the moment it reaches the
+  glass, by the display's own frame clock.
 - **Every sound starts on its frame.** The CI preview renders bars of every kit and checks the
   first sound of each click is within a millisecond of its frame (`timing.txt`).
 
@@ -101,6 +115,8 @@ APK, then runs a "preview" build on an Android emulator. A demo activity in
 - `bars.png`: a few bars of seven grooves (compound time, swing, ghosts and rests, silent
   bars, a steep ramp), with a line where each click was scheduled
 - `timing.txt`: how soon each of those clicks is heard after its line
+- `clock.txt`: for three seconds after START on the emulator's sound card, how evenly the ball
+  moves, by the steadied clock and by the raw one
 - `sounds/*.wav`: two bars of each kit, to listen to
 
 It then walks through the app (playing, the practice aids, a tape, 6/8 swing, four
@@ -118,9 +134,11 @@ download artifacts.
 | The five kits, synthesised in code, and the mixer | `…/engine/Sounds.kt` |
 | Tap tempo | `…/engine/TapTempo.kt` |
 | The audio thread, and what is being heard now | `…/engine/Metronome.kt` |
+| The steadied clock the display reads | `…/engine/DisplayClock.kt` |
 | Rendering to a buffer, for tests and the CI preview | `…/engine/Bounce.kt` |
 | Ticking with the screen off | `…/TickService.kt` |
 | Settings and tapes, kept on the phone | `…/data/AppSettings.kt` |
+| How the screen is laid out: tall, wide or short, and the folding television | `…/ui/Layout.kt` |
 | Jetpack Compose screens and the retro theme | `…/ui/` |
 | CI demo driver (preview build only) | `app/src/preview/` |
 
@@ -131,7 +149,10 @@ which is what lets the unit tests in `app/src/test/` play hours of music in a se
 
 ## Building locally
 
-Needs JDK 17 and the Android SDK (Android Studio brings both):
+Needs JDK 17 and the Android SDK (Android Studio brings both). Without Android Studio, the
+SDK's command-line tools will do: install `platforms;android-35` and `build-tools;34.0.0`,
+and point `ANDROID_HOME` (or `sdk.dir` in `local.properties`) at it. The SDK and Google's
+Maven repository both download from `dl.google.com`.
 
 ```sh
 ./gradlew testReleaseUnitTest assembleRelease   # → app/build/outputs/apk/release/app-release.apk
