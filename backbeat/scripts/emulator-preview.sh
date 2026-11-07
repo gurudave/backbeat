@@ -174,11 +174,13 @@ shot 24-three-against-four-playing 4
 tap_at "$BIG" 'big screen'
 shot 25-big-screen 3
 # Keys, as a page-turner pedal or a keyboard sends them: space stops, page down loads the next tape.
+# "Judge my timing" is still on, so stopping scores the session, but the scorecard keeps out of
+# the big screen's way.
 adb shell input keyevent KEYCODE_SPACE
 sleep 1
 adb shell input keyevent KEYCODE_PAGE_DOWN
 shot 26-big-screen-next-tape 1
-# BACK leaves the big screen, and should leave the app open.
+# BACK leaves the big screen, and should leave the app open, with the scorecard now showing.
 adb shell input keyevent KEYCODE_BACK
 sleep 1
 adb shell dumpsys activity activities | grep -m1 -E 'topResumedActivity|mResumedActivity' | tee "$OUT/after-back.txt"
@@ -187,15 +189,19 @@ if ! grep -q "$PKG" "$OUT/after-back.txt"; then
   adb shell am start -W -n "$PKG/.MainActivity" > /dev/null
   sleep 2
 fi
+shot 27-scorecard-after-the-big-screen 1
+# BACK again puts the scorecard away unsigned.
+adb shell input keyevent KEYCODE_BACK
+sleep 1
 
 echo "== The logbook"
-tap_text '^practice$' && shot 27-logbook 2
+tap_text '^practice$' && shot 28-logbook 2
 
 echo "== Keep ticking in the background"
 tap_text '^set up$' && sleep 1
 scroll_panel
 scroll_panel
-tap_text 'keep ticking' && shot 28-keep-ticking-on 2
+tap_text 'keep ticking' && shot 29-keep-ticking-on 2
 START=$(find_text '^start$') || START=""
 tap_at "$START" start
 sleep 2
@@ -203,12 +209,12 @@ adb shell input keyevent KEYCODE_HOME
 sleep 4
 adb shell dumpsys activity services "$PKG" | grep -E 'ServiceRecord|isForeground|foregroundServiceType' | tee "$OUT/service.txt"
 adb shell cmd statusbar expand-notifications
-shot 29-notification 3
+shot 30-notification 3
 if ! tap_text '^stop$'; then
   # A quiet notification starts folded; pull it open to reach its STOP button.
   if xy=$(find_text '^Backbeat'); then
     adb shell input swipe "${xy% *}" "${xy#* }" "${xy% *}" $(( ${xy#* } + 500 )) 400
-    shot 30-notification-open 2
+    shot 31-notification-open 2
     tap_text '^stop$'
   fi
 fi

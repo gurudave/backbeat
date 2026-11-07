@@ -436,7 +436,10 @@ fun BackbeatApp() {
                     onClose = { stage = false },
                 )
             }
-            results?.let { card ->
+            // The scorecard waits until the big screen is put away: mid-set, it would only be in the way.
+            results?.takeIf { !stage }?.let { card ->
+                // BACK puts the scorecard away unsigned, rather than acting on what is behind it.
+                BackHandler { results = null }
                 ResultsCard(card, hiScores, AppSettings.lastInitials(context)) { initials ->
                     if (initials != null) {
                         val entry = HiScore(

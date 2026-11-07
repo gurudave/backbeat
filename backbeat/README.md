@@ -62,7 +62,8 @@ Turn on **judge my timing** on the EAR tab, press START and play along: clap, pl
 drum, a guitar. Every hit is graded against the nearest click, **perfect** (within 10 ms),
 **great** (20), **good** (35) or **miss**, with points, and a multiplier that grows with every
 hit in a row that is not a miss. A strip in the top of the screen shows each hit early or late
-of the click, and a pip on the beat's light shows where it fell. At STOP comes the scorecard: a
+of the click, and a pip on the beat's light shows where it fell. At STOP comes the scorecard (on
+the big screen, it waits until you leave it, so as not to get in the way mid-set): a
 rank from S to D, the score, the best combo, how tight you were, and whether you **rushed or
 dragged**, with the click and, separately, **on your own** in silent bars, rests and dropped
 beats, which is where it counts. A good score goes on the hi-score table under your initials.
