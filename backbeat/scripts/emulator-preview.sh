@@ -175,8 +175,15 @@ adb shell input keyevent KEYCODE_SPACE
 sleep 1
 adb shell input keyevent KEYCODE_PAGE_DOWN
 shot 26-big-screen-next-tape 1
+# BACK leaves the big screen, and should leave the app open.
 adb shell input keyevent KEYCODE_BACK
 sleep 1
+adb shell dumpsys activity activities | grep -m1 -E 'topResumedActivity|mResumedActivity' | tee "$OUT/after-back.txt"
+if ! grep -q "$PKG" "$OUT/after-back.txt"; then
+  echo "BACK left the app; opening it again"
+  adb shell am start -W -n "$PKG/.MainActivity" > /dev/null
+  sleep 2
+fi
 
 echo "== The logbook"
 tap_text '^practice$' && shot 27-logbook 2
@@ -209,5 +216,5 @@ adb shell cmd statusbar collapse
 adb logcat -d > "$OUT/logcat.txt"
 echo "== Crashes, if any"
 grep -A 25 'FATAL EXCEPTION' "$OUT/logcat.txt" | head -80 || true
-grep -E 'BackbeatDemo|Metronome|Ear  |Pedal' "$OUT/logcat.txt" | head -80 || true
+grep -E 'BackbeatDemo|Metronome|Ear  |Pedal|Backbeat:' "$OUT/logcat.txt" | head -80 || true
 exit 0

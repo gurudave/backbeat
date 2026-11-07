@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.SystemClock
 import android.os.VibrationEffect
+import android.util.Log
 import android.os.Vibrator
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -77,6 +78,7 @@ fun BackbeatApp() {
     var tab by rememberSaveable { mutableStateOf(Tab.BEAT) }
     var stage by rememberSaveable { mutableStateOf(false) }
     BackHandler(stage) { stage = false }
+    LaunchedEffect(stage) { Log.i("Backbeat", if (stage) "big screen open" else "big screen closed") }
     val engine by Metronome.state.collectAsStateWithLifecycle()
     val ear by Ear.state.collectAsStateWithLifecycle()
     val hits = Ear.hits.collectAsState()
