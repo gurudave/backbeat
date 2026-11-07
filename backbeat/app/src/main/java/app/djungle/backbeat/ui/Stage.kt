@@ -1,5 +1,6 @@
 package app.djungle.backbeat.ui
 
+import android.util.Log
 import android.view.KeyEvent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -92,6 +93,7 @@ object Pedal {
         val handle = handler ?: return false
         // Only the press acts (held, the tempo keys repeat); its release is swallowed with it.
         if (event.action == KeyEvent.ACTION_DOWN && (event.repeatCount == 0 || command == Command.FASTER || command == Command.SLOWER)) {
+            Log.i("Pedal", "${KeyEvent.keyCodeToString(event.keyCode)}: $command")
             return handle(command)
         }
         return true

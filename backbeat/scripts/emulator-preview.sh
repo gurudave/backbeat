@@ -209,5 +209,5 @@ adb shell cmd statusbar collapse
 adb logcat -d > "$OUT/logcat.txt"
 echo "== Crashes, if any"
 grep -A 25 'FATAL EXCEPTION' "$OUT/logcat.txt" | head -80 || true
-grep -E 'BackbeatDemo|Metronome|Ear' "$OUT/logcat.txt" | head -80 || true
+grep -E 'BackbeatDemo|Metronome|Ear  |Pedal' "$OUT/logcat.txt" | head -80 || true
 exit 0

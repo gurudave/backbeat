@@ -217,7 +217,7 @@ object Ear {
         var reads = 0L
         var stamp: InputStamp? = null
         var lastPlaced = -1L
-        val clicks = ArrayDeque<Placed>()
+        val clicks = ArrayDeque<Heard>()
         val pending = ArrayList<Long>()
         val heard = ArrayList<Pair<Long, Float>>()
         val recent = ArrayList<Judgment>()
@@ -241,19 +241,30 @@ object Ear {
                 fun micNanos(frame: Long) = clock.nanos + ((frame - clock.frame) * 1e9 / rate).toLong()
                 fun micFrame(nanos: Long) = clock.frame + ((nanos - clock.nanos) * rate / 1e9).toLong()
 
+                val now = System.nanoTime()
                 if (mode != EarMode.TEMPO) {
                     Metronome.placedSince(lastPlaced)?.forEach { p ->
                         lastPlaced = p.serial
-                        clicks.addLast(p)
+                        clicks.addLast(Heard(p))
                         if (firstClick == 0L) firstClick = p.nanos
-                        if (mode == EarMode.COACH && !echoFree && p.level > 0f) {
-                            // When the microphone hears this click: the speaker's time, back on its own clock.
-                            val at = micFrame(p.nanos - offset)
-                            detector.shadow(at - rate * 10L / 1000, at + rate * 30L / 1000, echo * p.level * SHADOW_MARGIN)
+                    }
+                    for (c in clicks) {
+                        if (c.firm) continue
+                        // Each click is timed by the speaker's clock as it reads when the click plays:
+                        // a stall in the sound revises the clock, but not for clicks already heard.
+                        Metronome.heardAt(c.placed.frame)?.let { c.nanos = it }
+                        if (c.nanos <= now) c.firm = true
+                        // Its shadow is laid just before it reaches the microphone, by that same clock.
+                        if (!c.shadowed && c.nanos < now + SHADOW_AHEAD_NANOS) {
+                            c.shadowed = true
+                            if (mode == EarMode.COACH && !echoFree && c.placed.level > 0f) {
+                                // When the microphone hears this click: the speaker's time, back on its own clock.
+                                val at = micFrame(c.nanos - offset)
+                                detector.shadow(at - rate * 10L / 1000, at + rate * 30L / 1000, echo * c.placed.level * SHADOW_MARGIN)
+                            }
                         }
                     }
                 }
-                val now = System.nanoTime()
                 if (mode == EarMode.COACH) while (clicks.isNotEmpty() && clicks.first().nanos < now - KEEP_NANOS) clicks.removeFirst()
 
                 detector.process(buffer, n) { onset ->
@@ -277,8 +288,7 @@ object Ear {
                         iterator.remove()
                         if (firstClick == 0L || hit < firstClick + SETTLE_NANOS) continue
                         val before = clicks.lastOrNull { it.nanos <= hit }
-                        // By the speaker's clock as it reads now, which may have firmed up since the click was placed.
-                        fun click(p: Placed) = Click(Metronome.heardAt(p.frame) ?: p.nanos, p.tick)
+                        fun click(c: Heard) = Click(c.nanos, c.placed.tick)
                         val judgment = judge.judge(hit, before?.let(::click), after?.let(::click)) ?: continue
                         recent += judgment
                         if (recent.size > RECENT) recent.removeAt(0)
@@ -312,11 +322,11 @@ object Ear {
                 if (mode == EarMode.CALIBRATE) {
                     // Done once enough clicks have been played and had time to be heard.
                     val played = clicks.filter {
-                        it.level > 0f && it.nanos < now - LATE_NANOS && firstClick != 0L && it.nanos >= firstClick + SETTLE_NANOS
+                        it.placed.level > 0f && it.firm && it.nanos < now - LATE_NANOS && it.nanos >= firstClick + SETTLE_NANOS
                     }
                     val gaveUp = now - started > CALIBRATE_GIVE_UP_NANOS
                     if (played.size >= CALIBRATION_CLICKS || gaveUp) {
-                        val times = played.map { (Metronome.heardAt(it.frame) ?: it.nanos) to it.level }
+                        val times = played.map { it.nanos to it.placed.level }
                         val result = Calibration.measure(times, heard)
                         Log.i(TAG, "calibration: $result from ${played.size} clicks and ${heard.size} hits")
                         if (result == null) {
@@ -355,6 +365,16 @@ object Ear {
         }
         if (mode == EarMode.TEMPO && session == mine) mutableState.update { it.copy(mode = EarMode.OFF, level = 0f) }
     }
+
+    /** A click as the Ear keeps it: when it is heard, firm once it has played, and whether it is shadowed yet. */
+    private class Heard(val placed: Placed) {
+        var nanos = placed.nanos
+        var firm = false
+        var shadowed = false
+    }
+
+    /** A click's shadow is laid this long before it is heard. */
+    private const val SHADOW_AHEAD_NANOS = 60_000_000L
 
     /** Sample rates to try, best first. */
     private val RATES = listOf(48_000, 44_100)

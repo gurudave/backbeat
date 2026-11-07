@@ -1,5 +1,6 @@
 package app.djungle.backbeat
 
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.widget.FrameLayout
@@ -24,12 +25,25 @@ class MainActivity : ComponentActivity() {
         Ear.nudgeMillis = AppSettings.nudge(app)
         // Keys from a pedal or a keyboard are taken before the on-screen keyboard sees them: it
         // otherwise keeps keys such as the space bar for itself, even with nothing to type into.
+        // That only reaches a view on the way to the focus, so this one keeps the focus whenever
+        // nothing inside it (a tape's label, being written) has taken it.
         val keys = object : FrameLayout(this) {
             override fun dispatchKeyEventPreIme(event: KeyEvent): Boolean =
                 Pedal.dispatch(event) || super.dispatchKeyEventPreIme(event)
         }
+        keys.isFocusableInTouchMode = true
+        if (Build.VERSION.SDK_INT >= 26) keys.defaultFocusHighlightEnabled = false
         keys.addView(ComposeView(this).apply { setContent { BackbeatApp() } })
         setContentView(keys)
+        keys.viewTreeObserver.addOnGlobalFocusChangeListener { _, now -> if (now == null) keys.requestFocus() }
+        this.keys = keys
+    }
+
+    private var keys: FrameLayout? = null
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && currentFocus == null) keys?.requestFocus()
     }
 
     /** A pedal, a headset's button or a keyboard, if nothing on the screen has focus: see [Pedal]. */
