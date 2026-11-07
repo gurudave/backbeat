@@ -141,7 +141,7 @@ fun BackbeatApp() {
             if (n != null && n.serial != heard) {
                 heard = n.serial
                 val tick = n.tick
-                if (latestOptions.buzz && tick.step == 0 && tick.audible && tick.accent != Accent.MUTE) {
+                if (latestOptions.buzz && tick.isBeat && tick.audible && tick.accent != Accent.MUTE) {
                     val strong = tick.accent == Accent.STRONG
                     runCatching { vibrator?.vibrate(VibrationEffect.createOneShot(if (strong) 40L else 20L, if (strong) 255 else 120)) }
                 }

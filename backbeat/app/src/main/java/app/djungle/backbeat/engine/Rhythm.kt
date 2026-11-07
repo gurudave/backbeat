@@ -80,8 +80,16 @@ data class Groove(
     val kit: Kit = Kit.BLIP,
     /** 0.1 to 1. */
     val volume: Float = 0.8f,
+    /**
+     * A cross-rhythm: this many clicks spread evenly across each bar, in a sound of their own,
+     * against the beats. 3 in a bar of 4/4 is "three against four". 0 for none.
+     */
+    val cross: Int = 0,
 ) {
     val beats: Int get() = meter.beats
+
+    /** The cross-rhythm, if there is one that differs from the beats themselves. */
+    val crossCount: Int get() = if (cross >= 2 && cross != beats) cross else 0
 
     /** The accent of beat [index] (from 0), even if the pattern and the meter disagree. */
     fun accent(index: Int): Accent = accents.getOrElse(index) { Accent.NORMAL }
@@ -112,20 +120,35 @@ data class Practice(
     val gapRest: Int = 2,
     /** Stop at the first downbeat after this many minutes; 0 means never. */
     val stopAfterMinutes: Int = 0,
+    /**
+     * The share of beats, in percent, that go missing at random for the player to fill in.
+     * The one of each bar always plays, so there is something to come home to.
+     */
+    val dropout: Int = 0,
 )
 
-/** One click, as the sequencer hands it out. [step] is 0 on the beat and 1+ for subdivisions. */
+/**
+ * One click, as the sequencer hands it out. [step] is 0 on the beat and 1+ for subdivisions.
+ * A click of the cross-rhythm has its place in that rhythm as [cross] (0 for the first of the
+ * bar), and [beat] is the beat it falls in; every other click has a [cross] of -1.
+ */
 data class Tick(
     val bar: Int,
     val beat: Int,
     val step: Int,
     val accent: Accent,
-    /** False inside a silent bar: the lights still move, but nothing is heard. */
+    /** False inside a silent bar or a dropped beat: the lights still move, but nothing is heard. */
     val audible: Boolean,
     /** The tempo at this tick, which a ramp may have moved away from the groove's. */
     val bpm: Int,
+    val cross: Int = -1,
 ) {
-    val isDownbeat: Boolean get() = beat == 0 && step == 0
+    /** A beat of the bar itself: not a subdivision, and not a click of the cross-rhythm. */
+    val isBeat: Boolean get() = step == 0 && cross < 0
+
+    val isDownbeat: Boolean get() = beat == 0 && isBeat
+
+    val isCross: Boolean get() = cross >= 0
 }
 
 /** The traditional Italian name for a tempo, for the display. */

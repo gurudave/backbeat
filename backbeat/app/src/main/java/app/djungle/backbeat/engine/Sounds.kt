@@ -27,9 +27,12 @@ enum class Kit(val label: String) {
 
     /** Kick on the accents, snare on the beats, hi-hat on the in-betweens. */
     DRUMS("drums"),
+
+    /** The tick and tock of a wind-up metronome on the piano, with its little bell on the one. */
+    WIND_UP("wind-up"),
 }
 
-/** One kit's three sounds, at one sample rate. */
+/** One kit's four sounds, at one sample rate. */
 class KitSounds(
     /** For accented beats. */
     val strong: FloatArray,
@@ -37,25 +40,51 @@ class KitSounds(
     val normal: FloatArray,
     /** For the clicks between beats. */
     val sub: FloatArray,
+    /** For the cross-rhythm, set apart from the beats by its pitch. */
+    val cross: FloatArray,
 ) {
-    /** Starts the sound for [tick], [offset] frames into the next block [mixer] renders. */
-    fun play(tick: Tick, mixer: Mixer, offset: Int) {
-        if (!tick.audible) return
-        if (tick.step > 0) {
-            mixer.trigger(sub, 1f, offset)
-            return
-        }
-        when (tick.accent) {
-            Accent.STRONG -> mixer.trigger(strong, 1f, offset)
-            Accent.NORMAL -> mixer.trigger(normal, 1f, offset)
-            Accent.SOFT -> mixer.trigger(normal, GHOST_GAIN, offset)
-            Accent.MUTE -> Unit
+    private fun loudest(x: FloatArray) = x.maxOfOrNull { abs(it) } ?: 0f
+
+    private val peaks = floatArrayOf(loudest(strong), loudest(normal), loudest(sub), loudest(cross))
+
+    /** The sound [tick] plays and how loud, or null for none. */
+    private inline fun <T> choose(tick: Tick, use: (sound: Int, gain: Float) -> T): T? {
+        if (!tick.audible) return null
+        if (tick.isCross) return use(3, if (tick.cross == 0) 1f else CROSS_GAIN)
+        if (tick.step > 0) return use(2, 1f)
+        return when (tick.accent) {
+            Accent.STRONG -> use(0, 1f)
+            Accent.NORMAL -> use(1, 1f)
+            Accent.SOFT -> use(1, GHOST_GAIN)
+            Accent.MUTE -> null
         }
     }
+
+    /** Starts the sound for [tick], [offset] frames into the next block [mixer] renders. */
+    fun play(tick: Tick, mixer: Mixer, offset: Int) {
+        choose(tick) { sound, gain ->
+            mixer.trigger(
+                when (sound) {
+                    0 -> strong
+                    1 -> normal
+                    2 -> sub
+                    else -> cross
+                },
+                gain,
+                offset,
+            )
+        }
+    }
+
+    /** How loud [tick] peaks, before the volume: 0 for a rest or a silent bar. */
+    fun peak(tick: Tick): Float = choose(tick) { sound, gain -> peaks[sound] * gain } ?: 0f
 
     companion object {
         /** How loud a ghost beat is next to an ordinary one: about 9 dB down. */
         const val GHOST_GAIN = 0.35f
+
+        /** The cross-rhythm's clicks after its first, a little under it. */
+        const val CROSS_GAIN = 0.8f
     }
 }
 
@@ -69,26 +98,38 @@ object Synth {
             strong = blip(sampleRate, 1568.0, 0.07, 0.024, 0.9f),
             normal = blip(sampleRate, 1046.5, 0.06, 0.02, 0.72f),
             sub = blip(sampleRate, 784.0, 0.04, 0.012, 0.42f),
+            cross = blip(sampleRate, 523.25, 0.06, 0.02, 0.62f),
         )
         Kit.BEEP -> KitSounds(
             strong = beep(sampleRate, 1760.0, 0.075, 0.85f),
             normal = beep(sampleRate, 880.0, 0.065, 0.72f),
             sub = beep(sampleRate, 660.0, 0.04, 0.4f),
+            cross = beep(sampleRate, 1318.5, 0.05, 0.6f),
         )
         Kit.WOOD -> KitSounds(
             strong = wood(sampleRate, 1250.0, 0.034, 0.95f, seed = 1),
             normal = wood(sampleRate, 920.0, 0.03, 0.8f, seed = 2),
             sub = wood(sampleRate, 1450.0, 0.014, 0.42f, seed = 3),
+            cross = wood(sampleRate, 560.0, 0.03, 0.72f, seed = 7),
         )
         Kit.COWBELL -> KitSounds(
             strong = cowbell(sampleRate, 1.12, 0.14, 0.9f),
             normal = cowbell(sampleRate, 1.0, 0.09, 0.74f),
             sub = cowbell(sampleRate, 1.0, 0.025, 0.36f),
+            cross = cowbell(sampleRate, 0.72, 0.06, 0.66f),
         )
         Kit.DRUMS -> KitSounds(
             strong = kick(sampleRate, 0.95f, seed = 4),
             normal = snare(sampleRate, 0.82f, seed = 5),
             sub = hat(sampleRate, 0.4f, seed = 6),
+            // A clave, as the cross-rhythm of a rumba is played.
+            cross = wood(sampleRate, 2500.0, 0.012, 0.62f, seed = 8),
+        )
+        Kit.WIND_UP -> KitSounds(
+            strong = mix(bell(sampleRate, 2093.0, 0.45, 1f), escapement(sampleRate, 3100.0, 1f, seed = 9), 0.9f),
+            normal = escapement(sampleRate, 3100.0, 0.8f, seed = 10),
+            sub = escapement(sampleRate, 4200.0, 0.36f, seed = 11),
+            cross = escapement(sampleRate, 1900.0, 0.66f, seed = 12),
         )
     }
 
@@ -197,7 +238,59 @@ object Synth {
         return finish(noise, sr, peak)
     }
 
+    /**
+     * The tick of a clockwork escapement: a sharp knock of noise, a bright ring from the
+     * pendulum's case, and a duller thud from the box under it.
+     */
+    private fun escapement(sr: Int, ring: Double, peak: Float, seed: Int): FloatArray {
+        val out = FloatArray((sr * 0.05).toInt())
+        val random = Random(seed)
+        val knock = (sr * 0.0008).toInt()
+        for (i in out.indices) {
+            val t = i.toDouble() / sr
+            var v = 0.8 * sin(2 * PI * ring * t) * exp(-t / 0.004) + 0.5 * sin(2 * PI * 380.0 * t) * exp(-t / 0.009)
+            if (i < knock) v += 0.9 * (random.nextDouble() * 2 - 1) * (1.0 - i.toDouble() / knock)
+            out[i] = v.toFloat()
+        }
+        return finish(highPass(out, sr, 250.0), sr, peak)
+    }
+
+    /**
+     * A small struck bell: the partials of a bell (a hum an octave down, the strike note, a
+     * minor third, a fifth, an octave), the higher ones fading first.
+     */
+    private fun bell(sr: Int, freq: Double, seconds: Double, peak: Float): FloatArray {
+        val out = FloatArray((sr * seconds).toInt())
+        val partials = listOf(
+            Triple(0.5, 0.35, 0.16),
+            Triple(1.0, 1.0, 0.11),
+            Triple(1.19, 0.45, 0.07),
+            Triple(1.5, 0.3, 0.05),
+            Triple(2.0, 0.4, 0.04),
+            Triple(2.98, 0.15, 0.02),
+        )
+        for (i in out.indices) {
+            val t = i.toDouble() / sr
+            var v = 0.0
+            for ((ratio, amp, tau) in partials) {
+                if (freq * ratio < sr * 0.45) v += amp * sin(2 * PI * freq * ratio * t) * exp(-t / tau)
+            }
+            out[i] = v.toFloat()
+        }
+        return finish(out, sr, peak, attack = 0.0005)
+    }
+
     // ---- helpers ----
+
+    /** Two sounds laid over one another from the same start, scaled to [peak]. */
+    private fun mix(a: FloatArray, b: FloatArray, peak: Float): FloatArray {
+        val out = FloatArray(maxOf(a.size, b.size))
+        for (i in a.indices) out[i] += a[i]
+        for (i in b.indices) out[i] += b[i]
+        val loudest = out.maxOfOrNull { abs(it) } ?: 0f
+        if (loudest > 0f) for (i in out.indices) out[i] *= peak / loudest
+        return out
+    }
 
     /** A band-limited square wave at [phase]: odd harmonics up to [maxHarmonic], below Nyquist. */
     private fun square(phase: Double, freq: Double, sr: Int, maxHarmonic: Int): Double {
