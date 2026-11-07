@@ -58,13 +58,15 @@ import app.djungle.backbeat.engine.Metronome
 import app.djungle.backbeat.engine.Now
 import app.djungle.backbeat.engine.Practice
 import app.djungle.backbeat.engine.Scorecard
+import app.djungle.backbeat.engine.Subdivision
 import app.djungle.backbeat.engine.TapTempo
 import app.djungle.backbeat.ui.theme.BackbeatTheme
 import app.djungle.backbeat.ui.theme.LocalVibe
 import kotlinx.coroutines.delay
+import java.time.LocalDate
 import kotlin.math.roundToInt
 
-/** The whole app: one screen, a television over five tabs. */
+/** The whole app: one screen, a television over a page of settings, chosen from a menu. */
 @Composable
 fun BackbeatApp() {
     val context = LocalContext.current
@@ -75,7 +77,8 @@ fun BackbeatApp() {
     var tapes by remember { mutableStateOf(AppSettings.tapes(context)) }
     var hiScores by remember { mutableStateOf(AppSettings.hiScores(context)) }
     var nudge by remember { mutableIntStateOf(AppSettings.nudge(context)) }
-    var tab by rememberSaveable { mutableStateOf(Tab.BEAT) }
+    var page by rememberSaveable { mutableStateOf(Page.BEAT) }
+    var menu by rememberSaveable { mutableStateOf(false) }
     var stage by rememberSaveable { mutableStateOf(false) }
     BackHandler(stage) { stage = false }
     LaunchedEffect(stage) { Log.i("Backbeat", if (stage) "big screen open" else "big screen closed") }
@@ -210,7 +213,7 @@ fun BackbeatApp() {
     val tapeIndex = tapes.indexOfFirst { it.groove == groove }
     fun stepTape(by: Int) {
         if (tapes.isEmpty()) {
-            say("no tapes yet: record one on the tapes tab")
+            say("no tapes yet: record one on the tapes page")
             return
         }
         val next = if (tapeIndex < 0) (if (by > 0) 0 else tapes.lastIndex) else Math.floorMod(tapeIndex + by, tapes.size)
@@ -232,6 +235,51 @@ fun BackbeatApp() {
     DisposableEffect(Unit) {
         Pedal.handler = { onCommand(it) }
         onDispose { Pedal.handler = null }
+    }
+
+    // What is set on each page, for the menu, so a ramp or silent bars left on is not forgotten.
+    fun note(of: Page): PageNote = when (of) {
+        Page.BEAT -> PageNote(
+            listOfNotNull(
+                groove.meter.label,
+                groove.subdivision.takeIf { it != Subdivision.NONE }?.label,
+                groove.crossCount.takeIf { it > 0 }?.let { "$it:${groove.beats}" },
+                groove.kit.label,
+            ).joinToString(" · "),
+        )
+        Page.EAR -> when (ear.mode) {
+            EarMode.TEMPO -> PageNote("listening for a tempo", lit = true)
+            EarMode.CALIBRATE -> PageNote("calibrating: listening to itself", lit = true)
+            else -> if (options.coach) PageNote("judging your timing", lit = true) else PageNote("judge your timing, or find a tempo")
+        }
+        Page.PRACTICE -> {
+            val on = listOfNotNull(
+                if (practice.ramp) "ramp to ${practice.rampTarget}" else null,
+                if (practice.gap) "silent bars" else null,
+                if (practice.dropout > 0) "${practice.dropout}% dropout" else null,
+                if (practice.stopAfterMinutes > 0) "stops after ${practice.stopAfterMinutes} min" else null,
+            )
+            if (on.isNotEmpty()) {
+                PageNote(on.joinToString(" · "), lit = true)
+            } else {
+                PageNote(duration(Logbook.summarise(logbook, LocalDate.now()).todaySeconds.toLong()).lowercase() + " played today")
+            }
+        }
+        Page.TAPES -> PageNote(
+            when {
+                tapes.isEmpty() -> "none yet"
+                tapeIndex < 0 -> if (tapes.size == 1) "1 tape" else "${tapes.size} tapes"
+                else -> "${tapeIndex + 1} of ${tapes.size}: ${tapes[tapeIndex].name}"
+            },
+        )
+        Page.SET_UP -> PageNote(
+            listOfNotNull(
+                "${vibe.channelName.lowercase()} ${vibe.label}",
+                if (options.flash) "flash" else null,
+                if (options.buzz) "buzz" else null,
+                if (options.keepTicking) "keeps ticking" else null,
+            ).joinToString(" · "),
+        )
     }
 
     // The results of a session of playing along, until they are signed or put away.
@@ -324,14 +372,14 @@ fun BackbeatApp() {
                         onTap = { tapper.tap(SystemClock.uptimeMillis())?.let { changeGroove(groove.withBpm(it)) } },
                     )
                 },
-                tabs = { TabChips(tab) { tab = it } },
+                pageBar = { PageBar(page, onMenu = { menu = true }) },
                 panel = {
-                    when (tab) {
-                        Tab.BEAT -> BeatPanel(groove, ::changeGroove) { kit ->
+                    when (page) {
+                        Page.BEAT -> BeatPanel(groove, ::changeGroove) { kit ->
                             changeGroove(groove.copy(kit = kit))
                             if (!engine.playing) Metronome.audition(kit, groove.volume)
                         }
-                        Tab.EAR -> EarPanel(
+                        Page.EAR -> EarPanel(
                             ear = ear,
                             coach = options.coach,
                             onCoach = ::changeCoach,
@@ -360,8 +408,8 @@ fun BackbeatApp() {
                                 say("tempo set: $it bpm")
                             },
                         )
-                        Tab.PRACTICE -> PracticePanel(practice, groove, ::changePractice, logbook)
-                        Tab.TAPES -> TapesPanel(
+                        Page.PRACTICE -> PracticePanel(practice, groove, ::changePractice, logbook)
+                        Page.TAPES -> TapesPanel(
                             tapes = tapes,
                             groove = groove,
                             playing = engine.playing,
@@ -392,7 +440,7 @@ fun BackbeatApp() {
                                 }
                             },
                         )
-                        Tab.SET_UP -> SetUpPanel(
+                        Page.SET_UP -> SetUpPanel(
                             vibe = vibe,
                             onVibe = {
                                 vibe = it
@@ -409,10 +457,20 @@ fun BackbeatApp() {
                         StageKey(onClick = { stage = true })
                     }
                 },
-                panelKey = tab,
+                panelKey = page,
                 unfold = starts,
             )
 
+            PageMenu(
+                open = menu,
+                page = page,
+                note = ::note,
+                onPage = {
+                    page = it
+                    menu = false
+                },
+                onClose = { menu = false },
+            )
             PixelBurst(burst, colors.stripes, Modifier.fillMaxWidth().height(300.dp))
             ToastPill(
                 toast,
@@ -454,7 +512,7 @@ fun BackbeatApp() {
                         AppSettings.setHiScores(context, hiScores)
                         AppSettings.setLastInitials(context, initials)
                         burst++
-                        tab = Tab.EAR
+                        page = Page.EAR
                     }
                     results = null
                 }

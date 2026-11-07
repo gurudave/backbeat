@@ -15,7 +15,7 @@ import app.djungle.backbeat.ui.theme.Vibe
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** The switches on the SET UP tab. */
+/** The switches on the SET UP page. */
 data class Options(
     /** The picture on the screen blinks on the one. */
     val flash: Boolean = false,
@@ -27,7 +27,7 @@ data class Options(
     val coach: Boolean = false,
 )
 
-/** A saved set-up, shown as a cassette on the TAPES tab. */
+/** A saved set-up, shown as a cassette on the TAPES page. */
 data class Tape(val id: Long, val name: String, val groove: Groove)
 
 /** A line of the hi-score table. */

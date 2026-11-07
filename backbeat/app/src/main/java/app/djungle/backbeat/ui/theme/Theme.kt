@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.sp
 import app.djungle.backbeat.R
 
 /**
- * The app's colour themes, presented as TV channels, flipped between on the SET UP tab. They
+ * The app's colour themes, presented as TV channels, flipped between on the SET UP page. They
  * are the same six channels as Djungleskwidgets and Funhouse, lifted from the retro mood
  * board in Djungleskwidgets' repository, so the three apps feel like one family.
  */

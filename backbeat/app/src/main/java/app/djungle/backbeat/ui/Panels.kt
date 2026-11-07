@@ -6,7 +6,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,7 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,20 +57,6 @@ import app.djungle.backbeat.ui.theme.Vcr
 import app.djungle.backbeat.ui.theme.Vibe
 import kotlinx.coroutines.delay
 import java.time.LocalDate
-
-/** The tabs under the screen. */
-enum class Tab(val label: String) { BEAT("beat"), EAR("ear"), PRACTICE("practice"), TAPES("tapes"), SET_UP("set up") }
-
-/** The row of tab names. It slides sideways if a narrow screen cannot fit them all. */
-@Composable
-fun TabChips(selected: Tab, onSelect: (Tab) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
-        Tab.entries.forEach { RetroChip(it.label, selected = selected == it, onClick = { onSelect(it) }, padding = 10.dp) }
-    }
-}
 
 private fun bars(n: Int) = if (n == 1) "1 bar" else "$n bars"
 

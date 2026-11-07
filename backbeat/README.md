@@ -58,7 +58,7 @@ manifest explains.
 
 ### The Ear
 
-Turn on **judge my timing** on the EAR tab, press START and play along: clap, play a pad, a
+Turn on **judge my timing** on the EAR page, press START and play along: clap, play a pad, a
 drum, a guitar. Every hit is graded against the nearest click, **perfect** (within 10 ms),
 **great** (20), **good** (35) or **miss**, with points, and a multiplier that grows with every
 hit in a row that is not a miss. A strip in the top of the screen shows each hit early or late
@@ -84,12 +84,24 @@ with no internet permission, nothing it hears could leave the phone anyway.
 
 ### Room for the controls
 
-The screen is one slim status line, the television, the tempo controls, the tabs and START.
-Scroll a tab's settings up and the television first **folds into a strip** (tempo, time
-signature, beat lights and ball, all still live), handing its room to the settings. Scroll
-back to the top, or press START, and it unfolds. With the phone **on its side**, or on a
-tablet, the screen splits in two: the television and tempo on the left, the tabs and START
-on the right. A small window scrolls as one column.
+The screen is one slim status line, the television, the tempo controls, a page of settings
+and START. The settings sit on a **shelf** of their own, a shade darker than the rest and
+edged above and below, so what is always there (the television, tempo and START) stands
+apart from the page on show. A page's lettering fades out at an edge with more beyond it,
+rather than being cut in half against START.
+
+The pages (**beat, ear, practice, tapes, set up**) are in the **menu**: the ≡ key at the top
+of the shelf, beside the name of the page on show. It slides in from the left like a VCR's
+set-up menu, with a blinking cursor at the current page and, under each page, what is set
+there now: the meter and sound, whether the Ear is judging, any practice aids that are on
+(lit, so a ramp or silent bars is not left on by mistake), the tape loaded and the channel.
+BACK, the x or a tap beside it puts it away.
+
+Scroll a page up and the television first **folds into a strip** (tempo, time signature,
+beat lights and ball, all still live), handing its room to the settings. Scroll back to the
+top, or press START, and it unfolds. With the phone **on its side**, or on a tablet, the
+screen splits in two: the television and tempo on the left, the shelf and START on the
+right. A small window scrolls as one column.
 
 ## Keeping good time
 
@@ -193,7 +205,7 @@ APK, then runs a "preview" build on an Android emulator. A demo activity in
   moves, by the steadied clock and by the raw one
 - `sounds/*.wav`: two bars of each kit, to listen to
 
-It then walks through the app (playing, the practice aids, a tape, 6/8 swing, four
+It then walks through the app (the menu, playing, the practice aids, a tape, 6/8 swing, four
 channels, the Ear, a cross-rhythm, the big screen driven by a pedal's keys, the logbook, and
 ticking in the background with the notification showing) and takes screenshots. The emulator
 has no microphone worth the name, so for the Ear the preview build swaps in a stand-in
@@ -221,9 +233,10 @@ download artifacts.
 | Ticking with the screen off | `…/TickService.kt` |
 | Settings and tapes, kept on the phone | `…/data/AppSettings.kt` |
 | The logbook and the hi-score table | `…/data/Records.kt` |
-| How the screen is laid out: tall, wide or short, and the folding television | `…/ui/Layout.kt` |
+| How the screen is laid out: tall, wide or short, the folding television and the settings' shelf | `…/ui/Layout.kt` |
+| The menu of pages, and the bar that opens it | `…/ui/Menu.kt` |
 | Jetpack Compose screens and the retro theme | `…/ui/` |
-| The EAR tab and the scorecard | `…/ui/EarPanel.kt` |
+| The EAR page and the scorecard | `…/ui/EarPanel.kt` |
 | The big screen, and pedals and keys | `…/ui/Stage.kt` |
 | CI demo driver and the stand-in microphone (preview build only) | `app/src/preview/` |
 

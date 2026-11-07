@@ -44,7 +44,7 @@ tap_text() {
   adb shell input tap $xy
 }
 
-# Scrolls the tab under the screen up by about half its height.
+# Scrolls the page of settings up by about half its height.
 scroll_panel() {
   adb shell input swipe 540 2000 540 1550 500
   sleep 1
@@ -56,6 +56,13 @@ slide_row() {
   xy=$(find_text "$1") || { echo "nothing on screen matches '$1'"; return 1; }
   adb shell input swipe 950 "${xy#* }" 150 "${xy#* }" 500
   sleep 1
+}
+
+# Opens a page of settings: the menu key over the settings, then the page in the menu.
+open_page() {
+  tap_text '^menu$' || return 1
+  sleep 1
+  tap_text "^$1 page"
 }
 
 # Taps a place found earlier: while the metronome plays, the screen never sits still long
@@ -90,47 +97,63 @@ adb shell am start -W -n "$PKG/.MainActivity"
 shot 01-home 5
 
 START=$(find_text '^start$') || START=""
-PRACTICE=$(find_text '^practice$') || PRACTICE=""
+MENU=$(find_text '^menu$') || MENU=""
+
+echo "== The menu"
+# Where its pages are is looked up now, with the screen still: while playing, it never settles.
+tap_at "$MENU" menu
+shot 02-menu 1
+PRACTICE=$(find_text '^practice page') || PRACTICE=""
+# BACK puts the menu away.
+adb shell input keyevent KEYCODE_BACK
+sleep 1
 
 echo "== Playing"
 tap_at "$START" start
-shot 02-playing 2
-shot 03-playing-a-moment-later 1
+shot 03-playing 2
+shot 04-playing-a-moment-later 1
+tap_at "$MENU" menu
+shot 05-menu-while-playing 1
 tap_at "$PRACTICE" practice
-shot 04-practice-tab-while-playing 2
+shot 06-practice-page-while-playing 2
 tap_at "$START" stop
 sleep 2
 
 echo "== Practice aids"
-tap_text 'tempo ramp' && shot 05-ramp-on 2
+tap_text 'tempo ramp' && shot 07-ramp-on 2
 # Past the logbook and the ramp's settings.
 scroll_panel
 scroll_panel
-tap_text 'silent bars' && shot 06-silent-bars-on 2
+tap_text 'silent bars' && shot 08-silent-bars-on 2
+# The menu says what is on, so a ramp or silent bars is not left on by mistake.
+tap_text '^menu$' && shot 09-menu-with-practice-aids-on 1
 
 echo "== Tapes"
-tap_text '^tapes$' && tap_text 'rec this tape' && shot 07-tape-recorded 2
+tap_text '^tapes page' && tap_text 'rec this tape' && shot 10-tape-recorded 2
 
 echo "== A compound meter with swing"
-tap_text '^beat$' && sleep 1
+open_page beat && sleep 1
 slide_row '^5/4$' && tap_text '^6/8$'
 slide_row '^16ths$' && tap_text '^swing$'
-shot 08-six-eight-swing 2
+shot 11-six-eight-swing 2
 START=$(find_text '^start$') || START=""
 tap_at "$START" start
-shot 09-six-eight-playing 3
+shot 12-six-eight-playing 3
 tap_at "$START" stop
 sleep 1
 scroll_panel
-shot 10-beat-tab-scrolled 2
+shot 13-beat-page-scrolled 2
 
 echo "== Other channels"
-tap_text '^set up$' && shot 11-set-up 2
+open_page 'set up' && shot 14-set-up 2
 for vibe in 'arcade' 'roller rink' 'sunday drive' 'record shop'; do
   if tap_text "vibe $vibe"; then
-    shot "12-vibe-${vibe// /-}" 3
+    shot "15-vibe-${vibe// /-}" 3
   fi
 done
+tap_text '^menu$' && shot 16-menu-on-a-light-channel 1
+adb shell input keyevent KEYCODE_BACK
+sleep 1
 tap_text 'vibe high score' > /dev/null
 
 echo "== The Ear, with a stand-in microphone that claps along"
@@ -138,48 +161,48 @@ echo "== The Ear, with a stand-in microphone that claps along"
 adb shell am force-stop "$PKG"
 adb shell am start -W -n "$PKG/.DemoActivity" --es mode ear
 sleep 5
-tap_text '^ear$' && shot 13-ear-tab 2
+open_page ear && shot 17-ear-page 2
 # The first time, it calibrates: it listens to its own clicks for a few seconds.
-tap_text 'judge my timing' && shot 14-calibrating 3
+tap_text 'judge my timing' && shot 18-calibrating 3
 sleep 10
-shot 15-calibrated 0
+shot 19-calibrated 0
 START=$(find_text '^start$') || START=""
 tap_at "$START" start
-shot 16-playing-along 9
-shot 17-playing-along-later 3
+shot 20-playing-along 9
+shot 21-playing-along-later 3
 tap_at "$START" stop
-shot 18-results 3
-tap_text '^sign it$|^again!$' && shot 19-hi-score-table 3
+shot 22-results 3
+tap_text '^sign it$|^again!$' && shot 23-hi-score-table 3
 scroll_panel
 scroll_panel
 scroll_panel
 LISTEN=$(find_text '^listen$') || LISTEN=""
 tap_at "$LISTEN" listen
-shot 20-finding-a-tempo 6
+shot 24-finding-a-tempo 6
 # Once sure, it stops listening by itself.
 sleep 9
-shot 21-tempo-found 0
+shot 25-tempo-found 0
 # The picture unfolded to show the tempo, so the SET key is further down.
 scroll_panel
 scroll_panel
-tap_text '^set [0-9]' && shot 22-tempo-set 2
+tap_text '^set [0-9]' && shot 26-tempo-set 2
 
 echo "== A cross-rhythm, and the big screen"
-tap_text '^beat$' && sleep 1
-tap_text '^3:4$' && shot 23-three-against-four 2
+open_page beat && sleep 1
+tap_text '^3:4$' && shot 27-three-against-four 2
 BIG=$(find_text '^big screen$') || BIG=""
 START=$(find_text '^start$') || START=""
 tap_at "$START" start
-shot 24-three-against-four-playing 4
+shot 28-three-against-four-playing 4
 tap_at "$BIG" 'big screen'
-shot 25-big-screen 3
+shot 29-big-screen 3
 # Keys, as a page-turner pedal or a keyboard sends them: space stops, page down loads the next tape.
 # "Judge my timing" is still on, so stopping scores the session, but the scorecard keeps out of
 # the big screen's way.
 adb shell input keyevent KEYCODE_SPACE
 sleep 1
 adb shell input keyevent KEYCODE_PAGE_DOWN
-shot 26-big-screen-next-tape 1
+shot 30-big-screen-next-tape 1
 # BACK leaves the big screen, and should leave the app open, with the scorecard now showing.
 adb shell input keyevent KEYCODE_BACK
 sleep 1
@@ -189,19 +212,19 @@ if ! grep -q "$PKG" "$OUT/after-back.txt"; then
   adb shell am start -W -n "$PKG/.MainActivity" > /dev/null
   sleep 2
 fi
-shot 27-scorecard-after-the-big-screen 1
+shot 31-scorecard-after-the-big-screen 1
 # BACK again puts the scorecard away unsigned.
 adb shell input keyevent KEYCODE_BACK
 sleep 1
 
 echo "== The logbook"
-tap_text '^practice$' && shot 28-logbook 2
+open_page practice && shot 32-logbook 2
 
 echo "== Keep ticking in the background"
-tap_text '^set up$' && sleep 1
+open_page 'set up' && sleep 1
 scroll_panel
 scroll_panel
-tap_text 'keep ticking' && shot 29-keep-ticking-on 2
+tap_text 'keep ticking' && shot 33-keep-ticking-on 2
 START=$(find_text '^start$') || START=""
 tap_at "$START" start
 sleep 2
@@ -209,12 +232,12 @@ adb shell input keyevent KEYCODE_HOME
 sleep 4
 adb shell dumpsys activity services "$PKG" | grep -E 'ServiceRecord|isForeground|foregroundServiceType' | tee "$OUT/service.txt"
 adb shell cmd statusbar expand-notifications
-shot 30-notification 3
+shot 34-notification 3
 if ! tap_text '^stop$'; then
   # A quiet notification starts folded; pull it open to reach its STOP button.
   if xy=$(find_text '^Backbeat'); then
     adb shell input swipe "${xy% *}" "${xy#* }" "${xy% *}" $(( ${xy#* } + 500 )) 400
-    shot 31-notification-open 2
+    shot 35-notification-open 2
     tap_text '^stop$'
   fi
 fi
