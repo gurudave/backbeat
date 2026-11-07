@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Installs the preview build on a running emulator, walks through the app, and saves
-# screenshots (plus the engine's contact sheets, timing report and sample sounds) to look over.
+# screenshots (plus the engine's contact sheets, timing reports and sample sounds) to look over.
+# The emulator has no microphone worth the name, so the Ear is shown with a stand-in that claps
+# along (see app/src/preview/.../FakeMicrophone.kt).
 # Usage: emulator-preview.sh <preview.apk> <output dir>
 set -uo pipefail
 
@@ -67,6 +69,7 @@ tap_at() {
 adb install -r "$APK"
 # Granted up front, so no permission dialog covers a screenshot.
 adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS || true
+adb shell pm grant "$PKG" android.permission.RECORD_AUDIO || true
 adb logcat -c
 
 echo "== Rendering the contact sheets, timing report and sounds"
@@ -77,7 +80,7 @@ echo "== How smoothly the ball moves after START, on the emulator's sound card"
 adb shell am start -W -n "$PKG/.DemoActivity" --es mode clock
 sleep 8
 adb pull "/sdcard/Android/data/$PKG/files/preview" "$OUT/gallery" || echo "could not pull the gallery"
-cat "$OUT/gallery/timing.txt" "$OUT/gallery/clock.txt" 2>/dev/null || true
+cat "$OUT/gallery/timing.txt" "$OUT/gallery/ear.txt" "$OUT/gallery/tempo.txt" "$OUT/gallery/clock.txt" 2>/dev/null || true
 
 echo "== First launch"
 adb shell am start -W -n "$PKG/.MainActivity"
@@ -125,10 +128,59 @@ for vibe in 'arcade' 'roller rink' 'sunday drive' 'record shop'; do
 done
 tap_text 'vibe high score' > /dev/null
 
+echo "== The Ear, with a stand-in microphone that claps along"
+# A fresh start, so the stand-in is in place before the app first listens.
+adb shell am force-stop "$PKG"
+adb shell am start -W -n "$PKG/.DemoActivity" --es mode ear
+sleep 5
+tap_text '^ear$' && shot 13-ear-tab 2
+# The first time, it calibrates: it listens to its own clicks for a few seconds.
+tap_text 'judge my timing' && shot 14-calibrating 3
+sleep 7
+shot 15-calibrated 0
+START=$(find_text '^start$') || START=""
+tap_at "$START" start
+shot 16-playing-along 9
+shot 17-playing-along-later 3
+tap_at "$START" stop
+shot 18-results 3
+tap_text '^sign it$|^again!$' && shot 19-hi-score-table 3
+scroll_panel
+scroll_panel
+scroll_panel
+LISTEN=$(find_text '^listen$') || LISTEN=""
+tap_at "$LISTEN" listen
+shot 20-finding-a-tempo 6
+# Once sure, it stops listening by itself.
+sleep 9
+shot 21-tempo-found 0
+tap_text '^set [0-9]' && shot 22-tempo-set 2
+
+echo "== A cross-rhythm, and the big screen"
+tap_text '^beat$' && sleep 1
+tap_text '^3:4$' && shot 23-three-against-four 2
+BIG=$(find_text '^big screen$') || BIG=""
+START=$(find_text '^start$') || START=""
+tap_at "$START" start
+shot 24-three-against-four-playing 4
+tap_at "$BIG" 'big screen'
+shot 25-big-screen 3
+# Keys, as a page-turner pedal or a keyboard sends them: space stops, page down loads the next tape.
+adb shell input keyevent KEYCODE_SPACE
+sleep 1
+adb shell input keyevent KEYCODE_PAGE_DOWN
+shot 26-big-screen-next-tape 1
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+
+echo "== The logbook"
+tap_text '^practice$' && shot 27-logbook 2
+
 echo "== Keep ticking in the background"
+tap_text '^set up$' && sleep 1
 scroll_panel
 scroll_panel
-tap_text 'keep ticking' && shot 13-keep-ticking-on 2
+tap_text 'keep ticking' && shot 28-keep-ticking-on 2
 START=$(find_text '^start$') || START=""
 tap_at "$START" start
 sleep 2
@@ -136,12 +188,12 @@ adb shell input keyevent KEYCODE_HOME
 sleep 4
 adb shell dumpsys activity services "$PKG" | grep -E 'ServiceRecord|isForeground|foregroundServiceType' | tee "$OUT/service.txt"
 adb shell cmd statusbar expand-notifications
-shot 14-notification 3
+shot 29-notification 3
 if ! tap_text '^stop$'; then
   # A quiet notification starts folded; pull it open to reach its STOP button.
   if xy=$(find_text '^Backbeat'); then
     adb shell input swipe "${xy% *}" "${xy#* }" "${xy% *}" $(( ${xy#* } + 500 )) 400
-    shot 15-notification-open 2
+    shot 30-notification-open 2
     tap_text '^stop$'
   fi
 fi
@@ -152,5 +204,5 @@ adb shell cmd statusbar collapse
 adb logcat -d > "$OUT/logcat.txt"
 echo "== Crashes, if any"
 grep -A 25 'FATAL EXCEPTION' "$OUT/logcat.txt" | head -80 || true
-grep -E 'BackbeatDemo|Metronome' "$OUT/logcat.txt" | head -60 || true
+grep -E 'BackbeatDemo|Metronome|Ear' "$OUT/logcat.txt" | head -80 || true
 exit 0

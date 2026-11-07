@@ -67,13 +67,26 @@ jobs:
           GLIMMER_KEYSTORE_PASSWORD: ${{ secrets.GLIMMER_KEYSTORE_PASSWORD }}
         run: ./gradlew --no-daemon --stacktrace testReleaseUnitTest assembleRelease assemblePreview
 
-      # Backbeat has no business on the internet. This makes sure it never asks to go there.
-      - name: Check the app asks for no internet access
+      # Backbeat has no business on the internet. This makes sure it never asks to go there,
+      # and that it asks for nothing beyond the short list the manifest explains.
+      - name: Check the app asks for no internet access, and nothing unexpected
         run: |
           AAPT2="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt2"
           "$AAPT2" dump permissions app/build/outputs/apk/release/app-release.apk | tee permissions.txt
           if grep -qE 'android.permission.(INTERNET|ACCESS_NETWORK_STATE)' permissions.txt; then
             echo "::error::Backbeat must never request network access"
+            exit 1
+          fi
+          allowed='FOREGROUND_SERVICE FOREGROUND_SERVICE_MEDIA_PLAYBACK POST_NOTIFICATIONS VIBRATE RECORD_AUDIO DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION'
+          unexpected=""
+          for name in $(sed -n "s/^uses-permission: name='\(.*\)'$/\1/p" permissions.txt); do
+            case " $allowed " in
+              *" ${name##*.} "*) ;;
+              *) unexpected="$unexpected $name" ;;
+            esac
+          done
+          if [ -n "$unexpected" ]; then
+            echo "::error::Unexpected permissions:$unexpected. Explain them in AndroidManifest.xml and add them here."
             exit 1
           fi
 
